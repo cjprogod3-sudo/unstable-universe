@@ -1,6 +1,10 @@
 name = "unstable-universe"
 main = "./worker.js"
 compatibility_date = "2026-11-15"
+keep_vars = true
+
+[secrets]
+required = ["YOUTUBE_API_KEY"]
 
 [assets]
 directory = "./dist"
