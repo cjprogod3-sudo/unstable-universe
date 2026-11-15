@@ -11,7 +11,7 @@ const ago = iso => {
 const format = n => new Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 1}).format(Number(n || 0));
 const creator = title => /wemmbu/i.test(title) ? 'Wemmbu' : /parrot/i.test(title) ? 'Parrot' : /spoke/i.test(title) ? 'Spoke' : /flamefrags/i.test(title) ? 'FlameFrags' : title;
 
-export async function onRequestGet({request, env}) {
+export async function handleCatalog(request, env) {
   const playlistId = new URL(request.url).searchParams.get('playlistId');
   if (!playlistId) return Response.json({error: 'playlistId is required.'}, {status: 400});
   if (!env.YOUTUBE_API_KEY) return Response.json({error: 'YouTube API key is not configured.'}, {status: 503});
@@ -40,3 +40,5 @@ export async function onRequestGet({request, env}) {
     await caches.default.put(cacheKey, response.clone()); return response;
   } catch (error) { return Response.json({error: error.message || 'Catalog refresh failed.'}, {status: 502}); }
 }
+
+export const onRequestGet = ({request, env}) => handleCatalog(request, env);
