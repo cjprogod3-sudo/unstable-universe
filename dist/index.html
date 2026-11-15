@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A fan-made, local-first Unstable Universe viewing dashboard." />
+  <title>UNSTABLE / Universe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="noise"></div><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="theme-artifacts" id="themeArtifacts" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Unstable Universe home"><span class="brand-mark">U</span><span>UNSTABLE<span class="muted">/</span>UNIVERSE</span></a>
+    <nav aria-label="Main navigation"><a class="active" href="#explore">Explore</a><a href="#timeline">Timeline</a><a href="#watchlist">Watchlist <span class="watch-count">0</span></a></nav>
+    <div class="header-actions"><button class="profile-button" id="profileButton"><span>◉</span><span id="profileName">Guest profile</span></button><button class="icon-button menu-button" aria-label="Open navigation" aria-expanded="false">☰</button></div>
+  </header>
+
+  <main id="top">
+    <section class="hero" id="explore">
+      <div class="eyebrow"><span class="pulse"></span> FAN ARCHIVE · LOCAL-FIRST</div>
+      <h1>Chaos has a<br/><em>constellation.</em></h1>
+      <p class="hero-copy">A cinematic, community-made dashboard for tracking the stories orbiting Unstable Universe. Built for revisits, theories, and keeping your next episode lined up.</p>
+      <div class="hero-actions"><a class="primary-button" href="#timeline">Explore the timeline <span>↘</span></a><button class="text-button" id="refreshCatalog">↻ Refresh official playlist</button><button class="text-button" id="surprise">Surprise me <span>→</span></button></div>
+      <aside class="data-notice" id="catalogNotice"><strong>Fan concept.</strong> Cards begin as samples. “Refresh official playlist” loads verified metadata only after the Cloudflare YouTube API setup in the README is complete.</aside>
+      <div class="hero-metric"><span class="metric-value" id="viewedStat">00</span><span class="metric-label">episodes<br/>tracked</span><span class="metric-line"></span><span class="metric-label">your private<br/>watch history</span></div>
+    </section>
+
+    <section class="creator-section" aria-labelledby="creator-title">
+      <div class="section-heading"><div><p class="eyebrow">01 / CREATOR DESKS</p><h2 id="creator-title">Pick an orbit.</h2></div><p>Each desk has its own theme, tiny tool, and sample viewing queue.</p></div>
+      <div class="creator-grid" id="creatorGrid"></div>
+    </section>
+
+    <section class="timeline-section" id="timeline" aria-labelledby="timeline-title">
+      <div class="section-heading"><div><p class="eyebrow">02 / STORY SIGNAL</p><h2 id="timeline-title">The signal timeline.</h2></div><label class="search"><span aria-hidden="true">⌕</span><input id="episodeSearch" type="search" placeholder="Search sample episodes" aria-label="Search sample episodes" /></label></div>
+      <div class="filter-rack"><div class="filters" id="filters" aria-label="Filter videos"></div><p class="filter-status" id="filterStatus">UNIVERSE MODE</p></div>
+      <p class="result-note" id="resultNote"></p>
+      <div class="episode-list" id="episodeList"></div>
+    </section>
+
+    <section class="watchlist-section" id="watchlist">
+      <div><p class="eyebrow">03 / YOUR VAULT</p><h2>Keep the thread.</h2><p>Your watched episodes are saved only in this browser. Nothing syncs to creators or any outside service.</p></div>
+      <div class="vault-card"><div class="vault-icon">✦</div><p id="vaultText">No episodes marked yet.</p><button class="ghost-button" id="clearWatched">Clear local history</button></div>
+    </section>
+  </main>
+  <footer><span>UNSTABLE / UNIVERSE</span><span>UNOFFICIAL FAN INTERFACE · SAMPLE DATA</span><a href="README.md">Deploy it free ↗</a></footer>
+  <dialog id="spoilerDialog"><button class="dialog-close" aria-label="Close">×</button><p class="eyebrow">SPOILER GUARD</p><h2>Choose your threshold.</h2><p>Hidden descriptions stay concealed until you choose to reveal them. Your preference stays in this browser.</p><div class="dialog-actions"><button class="primary-button" id="revealSpoilers">Reveal spoilers</button><button class="ghost-button" id="keepHidden">Keep hidden</button></div></dialog>
+  <dialog id="profileDialog" class="wide-dialog"><button class="dialog-close" aria-label="Close">×</button><p class="eyebrow">LOCAL PROFILE / BROWSER ONLY</p><h2>Your viewing vault.</h2><p>Set a name and optional verified video links. This is not a real account: details and progress stay only in this browser.</p><label class="form-label">Display name<input id="profileInput" maxlength="28" placeholder="Enter a display name" /></label><div class="embed-manager"><p class="tool-label">VERIFIED VIDEO EMBEDS</p><p class="small-note">Paste only official YouTube or Vimeo links for a sample episode. Nothing is pre-filled or claimed as official.</p><div id="embedInputs"></div></div><div class="dialog-actions"><button class="primary-button" id="saveProfile">Save local profile</button><button class="ghost-button" id="resetProfile">Reset local data</button></div></dialog>
+  <dialog id="videoDialog" class="video-dialog"><button class="dialog-close" aria-label="Close">×</button><div id="videoStage"></div></dialog>
+  <script src="app.js"></script>
+</body>
+</html>
