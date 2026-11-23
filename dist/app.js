@@ -5,8 +5,8 @@ const CATALOG_KEY = 'unstable-universe-library-catalog-v1';
 
 const icons = {
   All: 'nether_star.png', Wemmbu: 'mace.png', Parrot: 'spyglass.png', Spoke: 'totem_of_undying.png', FlameFrags: 'netherite_sword.png', Other: 'compass_00.png',
-  'In progress': 'recovery_compass.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', Rated: 'amethyst_shard.png', Longform: 'clock_00.png',
-  Civilization: 'end_crystal.png', Law: 'book.png', Dimension: 'ender_eye.png', War: 'netherite_sword.png', Mafia: 'echo_shard.png', Prison: 'iron_bars.png', 'Bases & vaults': 'chest.png'
+  'In progress': 'recovery_compass_00.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', Rated: 'amethyst_shard.png', Longform: 'clock_00.png',
+  Civilization: 'end_crystal.png', Law: 'book.png', Dimension: 'ender_eye.png', War: 'netherite_sword.png', Mafia: 'echo_shard.png', Prison: 'iron_door.png', 'Bases & vaults': 'bundle.png'
 };
 const themes = {
   All: {key: 'all', accent: '#b17cff', rgb: '177,124,255'},
