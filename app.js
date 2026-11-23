@@ -87,7 +87,7 @@ function normalizeProfile(raw) {
     lastVideoId: typeof source.lastVideoId === 'string' ? source.lastVideoId : ''
   };
 }
-const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false});
+const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false, sidebar: 'open'});
 function normalizeSettings(raw) {
   const source = isObject(raw) ? raw : {};
   return {
@@ -95,7 +95,8 @@ function normalizeSettings(raw) {
     transitions: source.transitions !== false,
     sound: source.sound !== false,
     volume: clamp(Number.isFinite(Number(source.volume)) ? Number(source.volume) : 0.5, 0, 1),
-    theater: Boolean(source.theater)
+    theater: Boolean(source.theater),
+    sidebar: source.sidebar === 'rail' ? 'rail' : 'open'
   };
 }
 
@@ -351,6 +352,8 @@ function applyTheme(name = themeNameFor(), iconName = iconNameFor()) {
   root.setProperty('--accent-two', theme.two);
   $('#activeItem').src = item(iconName);
   $('#activeMode').textContent = `${iconName.toUpperCase()} MODE`;
+  $('#topItem').src = item(iconName);
+  $('#topMode').textContent = iconName === 'All' ? 'All creators' : iconName;
   renderArtifacts(iconName, theme);
 }
 
@@ -372,7 +375,7 @@ const SPARK_TINTS = {
   All: ['#ffffff', '#8fd8ff', '#b5c2ff'], Wemmbu: ['#be85ff', '#e7c8ff', '#8a4dff'], Parrot: ['#77f59c', '#d4ffe0', '#2fbf6d'],
   FlameFrags: ['#ff6d78', '#ffb36b', '#ff3d3d'], F0_olish: ['#ffc35c', '#fff2c8', '#ff9f2e'], Other: ['#ffffff', '#b9c3d6']
 };
-const BLOCKERS = 'button, a, input, select, textarea, label, dialog, summary, kbd, h1, h2, h3, p, .glass-card, .video-card, .shelf-card, .hotbar, .glass-nav, .empty-state, .toast, .new-banner';
+const BLOCKERS = 'button, a, input, select, textarea, label, dialog, summary, kbd, h1, h2, h3, p, .glass-card, .video-card, .shelf-card, .hotbar, .topbar, .sidebar, .sidebar-scrim, .empty-state, .toast, .new-banner';
 const field = {items: [], sparks: [], rings: [], frame: 0, last: 0, drag: null, hover: null, colors: SPARK_TINTS.All, rainbow: false, canvas: null, ctx: null, w: 0, h: 0, pointer: null};
 
 function itemSetFor(iconName) {
@@ -908,18 +911,24 @@ function countFor(group, value) {
   const probe = {...filters, [group]: value};
   return videos.filter(video => matches(video, probe)).length;
 }
+const COLLECTION_LABELS = {All: 'Everything'};
+function sideRow(group, value, label) {
+  const theme = themes[value] || themes.All;
+  const active = filters[group] === value;
+  const count = videos.length ? (value === 'All' ? (group === 'creator' ? videos.length : null) : countFor(group, value)) : null;
+  return `<button class="side-row ${active ? 'active' : ''}" type="button" aria-pressed="${active}" data-filter-group="${group}" data-filter-value="${escapeHTML(value)}" title="${escapeHTML(label)}" style="--row-rgb:${theme.rgb};--row-accent:${theme.accent}"><span class="row-icon"><img src="${item(value)}" alt=""></span><span class="side-text row-label">${escapeHTML(label)}</span>${count === null ? '' : `<span class="side-text row-count">${count}</span>`}</button>`;
+}
 function renderFilters() {
-  $('#filterGroups').innerHTML = filterDefinitions().map(group => {
-    const chips = group.values.map(value => {
-      const theme = themes[value] || themes.All;
-      const active = filters[group.key] === value;
-      const count = videos.length ? countFor(group.key, value) : null;
-      const label = value === 'All' && group.key === 'creator' ? 'All creators' : value;
-      return `<button class="chip ${active ? 'active' : ''}" type="button" aria-pressed="${active}" data-filter-group="${group.key}" data-filter-value="${escapeHTML(value)}" style="--chip-color:${theme.accent};--chip-rgb:${theme.rgb}"><img src="${item(value)}" alt="">${escapeHTML(label)}${count === null ? '' : `<span class="chip-count">${count}</span>`}</button>`;
-    }).join('');
-    const hint = group.key === 'tag' ? '<span class="group-hint" title="Tags come from keywords found in each title and description. They are not official arc names.">automatic</span>' : '';
-    return `<div class="filter-group"><span class="filter-group-label">${group.label}${hint}</span><div class="chip-scroller">${chips}</div></div>`;
-  }).join('');
+  const [creators, collections, tags] = filterDefinitions();
+  $('#creatorList').innerHTML = creators.values.map(value => sideRow('creator', value, value === 'All' ? 'All creators' : value)).join('');
+  $('#collectionList').innerHTML = collections.values.map(value => sideRow('collection', value, COLLECTION_LABELS[value] || value)).join('');
+  $('#tagList').innerHTML = tags.values.length > 1 ? tags.values.map(value => {
+    const theme = themes[value] || themes.All;
+    const active = filters.tag === value;
+    return `<button class="side-chip ${active ? 'active' : ''}" type="button" aria-pressed="${active}" data-filter-group="tag" data-filter-value="${escapeHTML(value)}" style="--row-rgb:${theme.rgb}"><img src="${item(value)}" alt="">${escapeHTML(value === 'All' ? 'Any' : value)}</button>`;
+  }).join('') : '<p class="side-note">Tags appear once the playlist loads.</p>';
+  const any = filters.creator !== 'All' || filters.collection !== 'All' || filters.tag !== 'All' || filters.search || filters.length !== 'any' || filters.year !== 'any';
+  $('#clearFiltersSide').hidden = !any;
 }
 function lengthBucket(seconds) {
   if (!seconds) return 'any';
@@ -1142,6 +1151,8 @@ function updateProfileUI() {
   $('#watchedPercent').textContent = `${percent}%`;
   $('#progressOrb').style.setProperty('--orb', `${percent * 3.6}deg`);
   $('#profileLabel').textContent = profile.name || 'This device';
+  $('#profileAvatar').textContent = (profile.name || '?').trim().charAt(0).toUpperCase() || '?';
+  $('#profileSub').textContent = `${watched} watched · saved in this browser`;
   const ratingsSaved = Object.keys(profile.ratings).filter(id => ratingFor(id)).length;
   const bookmarkCount = Object.values(profile.bookmarks).reduce((sum, list) => sum + list.length, 0);
   $('#profileSummary').innerHTML = [
@@ -1528,14 +1539,57 @@ async function importProfile(file) {
     $('#importProfile').value = '';
   }
 }
-function openSettings() {
+const PRESET_NOTES = {minimal: 'Colors switch instantly. Items stay still, no sparks.', balanced: 'Creator transitions, floating items, and a spark trail.', cinematic: 'More items and sparks, shockwaves, and light that follows your pointer.'};
+function syncSettingsControls() {
   document.querySelectorAll('input[name="preset"]').forEach(input => { input.checked = input.value === settings.preset; });
+  $('#presetNote').textContent = PRESET_NOTES[settings.preset];
   $('#transitionsToggle').checked = settings.transitions;
   $('#soundToggle').checked = settings.sound;
   $('#volumeRange').value = String(Math.round(settings.volume * 100));
+  $('#volumeRange').style.setProperty('--fill', `${Math.round(settings.volume * 100)}%`);
   $('#volumeOutput').textContent = `${Math.round(settings.volume * 100)}%`;
   $('#motionNote').hidden = !reducedMotion.matches;
-  $('#settingsDialog').showModal();
+}
+function openSettings() {
+  openSidebar();
+  const panel = $('#settingsPanel');
+  panel.scrollIntoView({block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth'});
+  panel.classList.remove('flash-panel');
+  void panel.offsetWidth;
+  panel.classList.add('flash-panel');
+}
+
+/* ---------- sidebar: pinned / rail on desktop, drawer on small screens ---------- */
+const drawerQuery = window.matchMedia('(max-width: 980px)');
+function isDrawer() { return drawerQuery.matches; }
+function applySidebarState() {
+  document.body.dataset.sidebar = isDrawer() ? 'drawer' : settings.sidebar;
+  $('#sidebarCollapse').setAttribute('aria-label', settings.sidebar === 'rail' ? 'Expand sidebar' : 'Collapse sidebar');
+  $('#sidebarCollapse').title = `${settings.sidebar === 'rail' ? 'Expand' : 'Collapse'} sidebar ([)`;
+  if (!isDrawer()) closeDrawer(false);
+}
+function openSidebar() {
+  if (isDrawer()) {
+    document.body.classList.add('drawer-open');
+    $('#sidebarScrim').hidden = false;
+    $('#sidebarOpen').setAttribute('aria-expanded', 'true');
+  } else if (settings.sidebar === 'rail') {
+    toggleSidebarRail();
+  }
+}
+function closeDrawer(returnFocus = true) {
+  if (!document.body.classList.contains('drawer-open')) return;
+  document.body.classList.remove('drawer-open');
+  $('#sidebarScrim').hidden = true;
+  $('#sidebarOpen').setAttribute('aria-expanded', 'false');
+  if (returnFocus) $('#sidebarOpen').focus({preventScroll: true});
+}
+function toggleSidebarRail() {
+  if (isDrawer()) { if (document.body.classList.contains('drawer-open')) closeDrawer(); else openSidebar(); return; }
+  settings.sidebar = settings.sidebar === 'rail' ? 'open' : 'rail';
+  saveSettings();
+  if (settings.sidebar === 'rail' && $('#sidebar').contains(document.activeElement)) document.activeElement.blur();
+  applySidebarState();
 }
 function applySettings() {
   document.body.dataset.fx = effectiveFx();
@@ -1545,6 +1599,7 @@ function applySettings() {
   $('#muteLabel').textContent = muted ? 'Sound effects off' : 'Sound effects on';
   if (audio.master) audio.master.gain.value = settings.volume * 0.9;
   renderMotes();
+  syncSettingsControls();
   applyTheme(appliedTheme || themeNameFor(), iconNameFor());
 }
 function toggleSound() {
@@ -1613,7 +1668,8 @@ function paletteCommands() {
     ...[['playlist', 'Playlist order'], ['newest', 'Newest upload'], ['oldest', 'Oldest upload'], ['views', 'Most viewed'], ['rating', 'My rating'], ['longest', 'Longest'], ['shortest', 'Shortest']].map(([value, label]) => ({label: `Sort: ${label}`, icon: 'Search', run: () => setFilter('sort', value)})),
     {label: 'Clear all filters', icon: 'Other', run: clearFilters},
     {label: 'Go to the library', icon: 'All', run: () => $('#library').scrollIntoView({behavior: 'smooth'})},
-    {label: 'Go to filters', icon: 'Search', run: () => $('#filters').scrollIntoView({behavior: 'smooth'})},
+    {label: 'Open filters and settings', icon: 'Search', run: openSidebar},
+    {label: 'Collapse or expand the sidebar', hint: '[', icon: 'Settings', run: toggleSidebarRail},
     {label: 'Copy a link to this view', icon: 'Random', run: () => copyText(shareURL(), 'Link to this view copied')},
     {label: 'Refresh the playlist', icon: 'Other', run: refreshPlaylist},
     {label: 'Open my device profile', icon: 'Watched', run: openProfile},
@@ -1654,6 +1710,7 @@ document.addEventListener('keydown', event => {
   const key = event.key;
   if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'k') { event.preventDefault(); $('#paletteDialog').open ? $('#paletteDialog').close() : openPalette(); return; }
   if (key === 'Escape' && activeRun) { skipTransition(); return; }
+  if (key === 'Escape' && document.body.classList.contains('drawer-open') && !document.querySelector('dialog:modal')) { closeDrawer(); return; }
   if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
   const modalOpen = document.querySelector('dialog:modal');
   const playerModal = modalOpen === playerDialog;
@@ -1669,16 +1726,34 @@ document.addEventListener('keydown', event => {
   if (lower === 'c') continueWatching();
   else if (lower === 'r') randomUnwatched();
   else if (lower === 'm') toggleSound();
-  else if (key === '?') openSettings();
+  else if (key === '?') $('#settingsDialog').showModal();
+  else if (key === '[') toggleSidebarRail();
 });
 
 /* ==========================================================================
    Events
    ========================================================================== */
-$('#filterGroups').addEventListener('click', event => {
+$('#sidebar').addEventListener('click', event => {
   const button = event.target.closest('[data-filter-group]');
-  if (button) setFilter(button.dataset.filterGroup, button.dataset.filterValue);
+  if (!button) return;
+  setFilter(button.dataset.filterGroup, button.dataset.filterValue);
+  if (isDrawer() && button.dataset.filterGroup !== 'tag') setTimeout(() => closeDrawer(false), 180);
 });
+$('#sidebarCollapse').addEventListener('click', toggleSidebarRail);
+$('#sidebarOpen').addEventListener('click', () => { if (!isDrawer()) toggleSidebarRail(); else if (document.body.classList.contains('drawer-open')) closeDrawer(); else openSidebar(); });
+$('#sidebarScrim').addEventListener('click', () => closeDrawer());
+$('#clearFiltersSide').addEventListener('click', clearFilters);
+$('#shortcutsTrigger').addEventListener('click', () => $('#settingsDialog').showModal());
+drawerQuery.addEventListener?.('change', applySidebarState);
+/* Liquid-glass specular highlight follows the pointer on the surface under it. */
+document.addEventListener('pointermove', event => {
+  if (event.pointerType !== 'mouse' || document.body.dataset.fx === 'minimal') return;
+  const surface = event.target instanceof Element && event.target.closest('.video-card, .lg, .new-banner, .shelf-card, .side-row');
+  if (!surface) return;
+  const rect = surface.getBoundingClientRect();
+  surface.style.setProperty('--mx', `${((event.clientX - rect.left) / rect.width * 100).toFixed(1)}%`);
+  surface.style.setProperty('--my', `${((event.clientY - rect.top) / rect.height * 100).toFixed(1)}%`);
+}, {passive: true});
 function handleCardClick(event) {
   const button = event.target.closest('button');
   if (!button) return;
@@ -1765,8 +1840,8 @@ document.querySelectorAll('.profile-dialog, .settings-dialog, .palette-dialog').
 document.querySelectorAll('input[name="preset"]').forEach(input => input.addEventListener('change', () => { settings.preset = input.value; saveSettings(); applySettings(); }));
 $('#transitionsToggle').addEventListener('change', event => { settings.transitions = event.target.checked; saveSettings(); });
 $('#soundToggle').addEventListener('change', event => { settings.sound = event.target.checked; saveSettings(); applySettings(); });
-$('#volumeRange').addEventListener('input', event => { settings.volume = Number(event.target.value) / 100; $('#volumeOutput').textContent = `${event.target.value}%`; saveSettings(); applySettings(); });
-$('#testSound').addEventListener('click', () => { $('#settingsDialog').close(); transitionTo(themeNameFor()); });
+$('#volumeRange').addEventListener('input', event => { settings.volume = Number(event.target.value) / 100; saveSettings(); applySettings(); });
+$('#testSound').addEventListener('click', () => { if (isDrawer()) closeDrawer(false); transitionTo(themeNameFor()); });
 
 $('#hotbarSlots').addEventListener('click', event => {
   const slot = event.target.closest('.slot');
@@ -1801,6 +1876,7 @@ videos = videos.filter(video => !video?.unavailable).map(enrich);
 const creatorFromURL = readURL();
 if (!creatorFromURL && profile.favoriteCreator) filters.creator = profile.favoriteCreator;
 $('#searchInput').value = filters.search;
+applySidebarState();
 applySettings();
 renderLibrary();
 showHotbar(3000);

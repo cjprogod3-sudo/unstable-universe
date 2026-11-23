@@ -25,18 +25,53 @@
   <div class="transition-layer" id="transitionLayer" aria-hidden="true"></div>
   <p class="sr-only" id="announcer" aria-live="polite"></p>
 
-  <header class="glass-nav">
-    <a class="brand" href="#library" aria-label="Unstable Universe Library home">
-      <span class="brand-glyph">U</span><span>UNSTABLE <b>/</b> LIBRARY</span>
-    </a>
-    <nav aria-label="Primary navigation">
-      <a href="#library">Library</a>
-      <a href="#filters">Filters</a>
+  <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
+  <aside class="sidebar lg" id="sidebar" aria-label="Filters and settings">
+    <div class="side-head">
+      <a class="brand" href="#library" aria-label="Unstable Universe Library home"><span class="brand-glyph">U</span><span class="side-text">UNSTABLE <b>/</b> LIBRARY</span></a>
+      <button class="side-icon" id="sidebarCollapse" type="button" aria-label="Collapse sidebar" title="Collapse sidebar ([)"><span aria-hidden="true">‹</span></button>
+    </div>
+    <label class="side-search"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Search videos" autocomplete="off" aria-label="Search videos" /><kbd class="search-kbd" aria-hidden="true">/</kbd></label>
+    <div class="side-scroll" id="filters">
+      <section class="side-section" aria-labelledby="creatorsLabel"><h2 class="side-label" id="creatorsLabel">Creators</h2><div class="side-list" id="creatorList" data-group="creator"></div></section>
+      <section class="side-section" aria-labelledby="libraryLabel"><h2 class="side-label" id="libraryLabel">My library</h2><div class="side-list" id="collectionList" data-group="collection"></div></section>
+      <section class="side-section side-wide" aria-labelledby="tagsLabel"><h2 class="side-label" id="tagsLabel">Keyword tags <span class="group-hint" title="Tags come from keywords found in each title and description. They are not official arc names.">automatic</span></h2><div class="side-chips" id="tagList" data-group="tag"></div></section>
+      <section class="side-section side-wide" aria-labelledby="refineLabel"><h2 class="side-label" id="refineLabel">Refine</h2>
+        <div class="side-selects">
+          <label class="side-select"><span>Sort</span><select id="sortSelect" aria-label="Sort videos"><option value="playlist">Playlist order</option><option value="newest">Newest upload</option><option value="oldest">Oldest upload</option><option value="views">Most viewed</option><option value="rating">My rating</option><option value="longest">Longest</option><option value="shortest">Shortest</option></select></label>
+          <label class="side-select"><span>Length</span><select id="lengthSelect" aria-label="Filter by length"><option value="any">Any</option><option value="short">Under 20 min</option><option value="medium">20–45 min</option><option value="long">Over 45 min</option></select></label>
+          <label class="side-select"><span>Uploaded</span><select id="yearSelect" aria-label="Filter by upload year"><option value="any">Any year</option></select></label>
+        </div>
+        <button class="side-ghost" id="clearFiltersSide" type="button">Clear all filters</button>
+      </section>
+      <section class="side-section side-wide" id="settingsPanel" aria-labelledby="settingsLabel"><h2 class="side-label" id="settingsLabel">Settings</h2>
+        <div class="segmented" role="radiogroup" aria-label="Visual preset">
+          <label><input type="radio" name="preset" value="minimal" /><span>Minimal</span></label>
+          <label><input type="radio" name="preset" value="balanced" /><span>Balanced</span></label>
+          <label><input type="radio" name="preset" value="cinematic" /><span>Cinematic</span></label>
+        </div>
+        <p class="side-note" id="presetNote"></p>
+        <p class="side-note" id="motionNote" hidden>Your system asks for reduced motion, so effects stay minimal.</p>
+        <label class="side-toggle"><span>Creator transitions</span><input type="checkbox" id="transitionsToggle" /></label>
+        <label class="side-toggle"><span>Sound effects</span><input type="checkbox" id="soundToggle" /></label>
+        <label class="side-range"><span>Volume</span><input type="range" id="volumeRange" min="0" max="100" step="5" /><output id="volumeOutput">50%</output></label>
+        <div class="side-buttons"><button class="side-ghost" id="testSound" type="button">Preview effect</button><button class="side-ghost" id="shortcutsTrigger" type="button">Shortcuts</button></div>
+      </section>
+    </div>
+    <div class="side-foot">
+      <button class="side-profile" id="profileTrigger" type="button"><span class="avatar" id="profileAvatar">?</span><span class="side-text"><strong id="profileLabel">This device</strong><small id="profileSub">Browser-local profile</small></span></button>
+    </div>
+  </aside>
+
+  <div class="app-shell">
+  <header class="topbar lg">
+    <button class="top-icon" id="sidebarOpen" type="button" aria-label="Open filters and settings" aria-controls="sidebar" aria-expanded="false"><span class="burger" aria-hidden="true"><i></i><i></i><i></i></span><span class="top-label">Filters</span></button>
+    <p class="top-mode"><img id="topItem" src="https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/nether_star.png" alt="" /><span id="topMode">All creators</span></p>
+    <div class="top-tools">
       <button class="nav-tool" id="paletteTrigger" type="button" aria-label="Open command palette" title="Command palette (Ctrl+K)"><span class="nav-search">⌕</span><kbd>Ctrl K</kbd></button>
       <button class="nav-tool" id="muteToggle" type="button" aria-pressed="false" title="Sound effects (M)"><span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="sr-only" id="muteLabel">Sound effects on</span></button>
       <button class="nav-tool" id="settingsTrigger" type="button" title="Settings"><img src="https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/redstone.png" alt="" /><span class="sr-only">Settings</span></button>
-      <button class="nav-profile" id="profileTrigger" type="button"><span class="online-dot"></span><span id="profileLabel">This device</span></button>
-    </nav>
+    </div>
   </header>
 
   <main>
@@ -69,22 +104,11 @@
 
     <section class="shelf-zone" id="shelfZone" aria-label="Your queue" hidden></section>
 
-    <section class="filter-zone glass-card" id="filters" aria-labelledby="filterTitle">
-      <div class="filter-topline">
-        <div><p class="eyebrow">EXPLORE THE ARCHIVE</p><h2 id="filterTitle">Tune the signal.</h2></div>
-        <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Search title, creator, or description" autocomplete="off" aria-label="Search videos" /><kbd class="search-kbd" aria-hidden="true">/</kbd></label>
-      </div>
-      <div class="filter-groups" id="filterGroups" aria-label="Video filters"></div>
-    </section>
-
     <section class="library-section" id="library" aria-labelledby="libraryTitle">
       <div class="library-heading">
         <div><p class="eyebrow" id="activeMode">UNIVERSE MODE</p><h2 id="libraryTitle">The playlist archive.</h2></div>
         <div class="library-tools">
           <p id="resultsText" aria-live="polite">Loading videos…</p>
-          <label class="sort-select">Length <select id="lengthSelect" aria-label="Filter by length"><option value="any">Any</option><option value="short">Under 20 min</option><option value="medium">20–45 min</option><option value="long">Over 45 min</option></select></label>
-          <label class="sort-select">Uploaded <select id="yearSelect" aria-label="Filter by upload year"><option value="any">Any year</option></select></label>
-          <label class="sort-select">Sort <select id="sortSelect" aria-label="Sort videos"><option value="playlist">Playlist order</option><option value="newest">Newest upload</option><option value="oldest">Oldest upload</option><option value="views">Most viewed</option><option value="rating">My rating</option><option value="longest">Longest</option><option value="shortest">Shortest</option></select></label>
           <button class="quiet-action compact" id="shareView" type="button" title="Copy a link to this exact view">Copy link</button>
         </div>
       </div>
@@ -102,6 +126,7 @@
     <span>Profile, ratings, and progress stay in this browser only.</span>
     <a href="https://www.youtube.com/playlist?list=PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg" target="_blank" rel="noreferrer">Open official playlist</a>
   </footer>
+  </div>
 
   <button class="hotbar-hint" id="hotbarHint" type="button" aria-label="Show the hotbar"></button>
   <nav class="hotbar tucked" id="hotbar" aria-label="Quick navigation hotbar">
@@ -166,23 +191,9 @@
   </dialog>
 
   <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
-    <button class="close-button" data-close-dialog="settingsDialog" aria-label="Close settings" type="button">×</button>
-    <p class="eyebrow">SETTINGS</p><h2 id="settingsTitle">Look, sound, and motion.</h2>
-    <fieldset class="preset-picker">
-      <legend>Visual preset</legend>
-      <label class="preset-card"><input type="radio" name="preset" value="minimal" /><strong>Minimal</strong><span>Theme colors switch instantly. Items stay still; no sparks.</span></label>
-      <label class="preset-card"><input type="radio" name="preset" value="balanced" /><strong>Balanced</strong><span>Creator transitions, floating items, and a spark trail.</span></label>
-      <label class="preset-card"><input type="radio" name="preset" value="cinematic" /><strong>Cinematic</strong><span>More items, more sparks, extra shockwaves, and light that follows your pointer.</span></label>
-    </fieldset>
-    <p class="motion-note" id="motionNote" hidden>Your system asks for reduced motion, so creator transitions are replaced with a simple color change.</p>
-    <div class="setting-rows">
-      <label class="toggle-row"><span><strong>Creator transitions</strong><small>Mace drop, spyglass zoom, totem pop, sword slash, and more when you switch creators.</small></span><input type="checkbox" id="transitionsToggle" /></label>
-      <label class="toggle-row"><span><strong>Sound effects</strong><small>Synthesized in your browser. Nothing plays until you click something.</small></span><input type="checkbox" id="soundToggle" /></label>
-      <label class="range-row"><span><strong>Volume</strong></span><input type="range" id="volumeRange" min="0" max="100" step="5" /><output id="volumeOutput">50%</output></label>
-    </div>
-    <div class="profile-actions"><button class="quiet-action" id="testSound" type="button">Preview current creator</button></div>
-    <h3 class="shortcut-title">Keyboard shortcuts</h3>
-    <dl class="shortcut-list">
+    <button class="close-button" data-close-dialog="settingsDialog" aria-label="Close shortcuts" type="button">×</button>
+    <p class="eyebrow">KEYBOARD</p><h2 id="settingsTitle">Shortcuts.</h2>
+        <dl class="shortcut-list">
       <div><dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Command palette</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Search</dd></div>
       <div><dt><kbd>1</kbd>–<kbd>6</kbd></dt><dd>Switch creator</dd></div>
@@ -190,6 +201,7 @@
       <div><dt><kbd>R</kbd></dt><dd>Random unwatched</dd></div>
       <div><dt><kbd>M</kbd></dt><dd>Mute sound effects</dd></div>
       <div><dt><kbd>Esc</kbd></dt><dd>Skip transition / close</dd></div>
+      <div><dt><kbd>[</kbd></dt><dd>Collapse or expand the sidebar</dd></div>
       <div><dt><kbd>N</kbd> <kbd>F</kbd> <kbd>L</kbd> <kbd>B</kbd> <kbd>T</kbd> <kbd>I</kbd></dt><dd>In the player: next, favorite, watch later, bookmark, theater, mini player</dd></div>
     </dl>
   </dialog>
