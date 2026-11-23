@@ -1,11 +1,13 @@
 import { handleCatalog } from './functions/api/catalog.js';
 import { handleComments } from './functions/api/comments.js';
+import { handleAccount } from './functions/api/account.js';
 
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (path === '/api/catalog') return handleCatalog(request, env);
     if (path === '/api/comments') return handleComments(request, env);
+    if (path === '/api/account' || path.startsWith('/api/account/')) return handleAccount(request, env);
     const asset = await env.ASSETS.fetch(request);
     if (path === '/' || path === '/index.html' || path === '/app.js' || path === '/styles.css') {
       const headers = new Headers(asset.headers);

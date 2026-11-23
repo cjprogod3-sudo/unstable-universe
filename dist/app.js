@@ -117,7 +117,10 @@ let pendingVideoFromURL = '';
 let suppressCloseTeardown = false;
 let unavailableCount = 0;
 
-function saveProfile() { if (!safeWrite(PROFILE_KEY, profile)) toast('Could not save. This browser storage may be full or blocked.'); }
+function saveProfile() {
+  if (!safeWrite(PROFILE_KEY, profile)) toast('Could not save. This browser storage may be full or blocked.');
+  if (typeof markDirty === 'function') markDirty();
+}
 function saveSettings() { safeWrite(SETTINGS_KEY, settings); }
 function saveCatalog() { safeWrite(CATALOG_KEY, videos); safeWrite(CATALOG_META_KEY, catalogMeta); }
 
@@ -1152,7 +1155,7 @@ function updateProfileUI() {
   $('#progressOrb').style.setProperty('--orb', `${percent * 3.6}deg`);
   $('#profileLabel').textContent = profile.name || 'This device';
   $('#profileAvatar').textContent = (profile.name || '?').trim().charAt(0).toUpperCase() || '?';
-  $('#profileSub').textContent = `${watched} watched · saved in this browser`;
+  $('#profileSub').textContent = syncLabel();
   const ratingsSaved = Object.keys(profile.ratings).filter(id => ratingFor(id)).length;
   const bookmarkCount = Object.values(profile.bookmarks).reduce((sum, list) => sum + list.length, 0);
   $('#profileSummary').innerHTML = [
@@ -1501,6 +1504,231 @@ async function loadComments() {
 }
 
 /* ==========================================================================
+   Accounts + cross-device sync (server: /api/account, Cloudflare D1).
+   The local profile stays the working copy; when signed in it is pushed to the
+   account after changes and pulled on load / when the tab comes back.
+   ========================================================================== */
+const SYNC_KEY = 'unstable-universe-library-sync-v1';
+const account = {available: null, user: '', status: 'idle', lastSync: 0, error: '', mode: 'signin', pushing: false};
+let syncMeta = (() => { const raw = safeRead(SYNC_KEY, {}); return {username: String(raw.username || ''), syncedAt: Number(raw.syncedAt) || 0, dirty: Boolean(raw.dirty)}; })();
+let syncTimer = null;
+let lastPull = 0;
+function saveSyncMeta() { safeWrite(SYNC_KEY, syncMeta); }
+
+async function accountRequest(path, method = 'GET', body) {
+  const response = await fetch(`/api/account${path}`, {
+    method, credentials: 'same-origin', cache: 'no-store',
+    headers: body ? {'Content-Type': 'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+    keepalive: method === 'PUT' && JSON.stringify(body || {}).length < 60000
+  });
+  const payload = await response.json().catch(() => ({}));
+  return {status: response.status, ok: response.ok, data: payload};
+}
+function newerProgress(a, b) {
+  if (!isObject(a)) return b;
+  if (!isObject(b)) return a;
+  const aTime = Number(a.updatedAt) || 0;
+  const bTime = Number(b.updatedAt) || 0;
+  if (aTime !== bTime) return aTime > bTime ? a : b;
+  if (Boolean(a.completed) !== Boolean(b.completed)) return a.completed ? a : b;
+  return (Number(a.seconds) || 0) >= (Number(b.seconds) || 0) ? a : b;
+}
+// Used only when both sides changed since the last sync (or on first sign-in): keep everything from both.
+function mergeProfiles(localRaw, remoteRaw) {
+  const local = normalizeProfile(localRaw);
+  const remote = normalizeProfile(remoteRaw);
+  const merged = defaultProfile();
+  merged.name = local.name || remote.name;
+  merged.favoriteCreator = local.favoriteCreator || remote.favoriteCreator;
+  merged.lastVideoId = local.lastVideoId || remote.lastVideoId;
+  for (const id of new Set([...Object.keys(local.progress), ...Object.keys(remote.progress)])) merged.progress[id] = newerProgress(local.progress[id], remote.progress[id]);
+  merged.ratings = {...remote.ratings, ...Object.fromEntries(Object.entries(local.ratings).filter(([, value]) => Number(value) > 0))};
+  for (const id of new Set([...Object.keys(local.favorites), ...Object.keys(remote.favorites)])) if (local.favorites[id] || remote.favorites[id]) merged.favorites[id] = true;
+  for (const id of new Set([...Object.keys(local.watchLater), ...Object.keys(remote.watchLater)])) {
+    const value = Math.max(Number(local.watchLater[id]) || 0, Number(remote.watchLater[id]) || 0);
+    if (value) merged.watchLater[id] = value;
+  }
+  for (const id of new Set([...Object.keys(local.bookmarks), ...Object.keys(remote.bookmarks)])) {
+    const seen = new Set();
+    const list = [...(remote.bookmarks[id] || []), ...(local.bookmarks[id] || [])].filter(mark => { const key = `${mark.t}|${mark.label}`; if (seen.has(key)) return false; seen.add(key); return true; });
+    if (list.length) merged.bookmarks[id] = list.sort((a, b) => a.t - b.t).slice(-50);
+  }
+  return merged;
+}
+function adoptProfile(next) {
+  profile = normalizeProfile(next);
+  safeWrite(PROFILE_KEY, profile);
+  renderLibrary();
+}
+function markDirty() {
+  if (!account.user) return;
+  syncMeta.dirty = true;
+  saveSyncMeta();
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushProfile, 2500);
+}
+async function pushProfile(attempt = 0) {
+  if (!account.user || account.pushing) return;
+  account.pushing = true;
+  account.status = 'syncing';
+  renderAccount();
+  try {
+    const result = await accountRequest('/profile', 'PUT', {profile, baseUpdatedAt: syncMeta.syncedAt});
+    if (result.ok) {
+      syncMeta = {username: account.user, syncedAt: result.data.updatedAt, dirty: false};
+      account.status = 'synced';
+      account.lastSync = Date.now();
+    } else if (result.status === 409 && attempt < 2) {
+      adoptProfile(mergeProfiles(profile, result.data.profile || {}));
+      syncMeta.syncedAt = Number(result.data.updatedAt) || 0;
+      account.pushing = false;
+      return pushProfile(attempt + 1);
+    } else if (result.status === 401) {
+      signedOutLocally('Your session ended. Sign in again to keep syncing.');
+    } else {
+      account.status = 'error';
+      account.error = result.data.error || 'Could not sync.';
+    }
+  } catch {
+    account.status = 'error';
+    account.error = 'Offline. Changes will sync when you are back online.';
+  } finally {
+    account.pushing = false;
+    saveSyncMeta();
+    renderAccount();
+  }
+}
+async function pullProfile({force = false} = {}) {
+  if (!force && Date.now() - lastPull < 15000) return;
+  lastPull = Date.now();
+  try {
+    const result = await accountRequest('/me');
+    if (result.status === 503) { account.available = false; renderAccount(); return; }
+    account.available = true;
+    if (!result.ok) throw new Error(result.data.error || 'Could not reach your account.');
+    if (!result.data.user) {
+      if (syncMeta.username) signedOutLocally(account.user ? 'You were signed out.' : '');
+      renderAccount();
+      return;
+    }
+    account.user = result.data.user.username;
+    if (syncMeta.username && syncMeta.username.toLowerCase() !== account.user.toLowerCase()) syncMeta = {username: account.user, syncedAt: 0, dirty: true};
+    syncMeta.username = account.user;
+    const serverTime = Number(result.data.updatedAt) || 0;
+    if (result.data.profile && serverTime > syncMeta.syncedAt) {
+      if (!syncMeta.dirty) { adoptProfile(result.data.profile); syncMeta.syncedAt = serverTime; }
+      else { adoptProfile(mergeProfiles(profile, result.data.profile)); syncMeta.syncedAt = serverTime; syncMeta.dirty = true; }
+    }
+    saveSyncMeta();
+    if (syncMeta.dirty || !result.data.profile) await pushProfile();
+    else { account.status = 'synced'; account.lastSync = Date.now(); }
+  } catch {
+    account.status = 'error';
+    account.error = 'Could not reach your account. Your changes are saved here and will sync later.';
+  }
+  renderAccount();
+}
+function signedOutLocally(message = '') {
+  account.user = '';
+  account.status = 'idle';
+  account.error = message;
+  syncMeta = {username: '', syncedAt: 0, dirty: false};
+  saveSyncMeta();
+  renderAccount();
+}
+async function submitAccountForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const username = form.elements.username.value.trim();
+  const password = form.elements.password.value;
+  const register = account.mode === 'register';
+  if (register && password !== form.elements.confirm.value) { account.error = 'The two passwords do not match.'; renderAccount(); return; }
+  account.status = 'working';
+  account.error = '';
+  renderAccount();
+  try {
+    const result = await accountRequest(register ? '/register' : '/login', 'POST', {username, password});
+    if (!result.ok) { account.status = 'idle'; account.error = result.data.error || 'Something went wrong.'; renderAccount(); return; }
+    account.available = true;
+    account.user = result.data.user.username;
+    const serverProfile = result.data.profile;
+    syncMeta = {username: account.user, syncedAt: Number(result.data.updatedAt) || 0, dirty: true};
+    if (serverProfile) adoptProfile(mergeProfiles(profile, serverProfile));
+    saveSyncMeta();
+    await pushProfile();
+    toast(register ? `Account created. Welcome, ${account.user}!` : `Signed in as ${account.user}`);
+  } catch {
+    account.status = 'idle';
+    account.error = 'Could not reach the server. Check your connection.';
+    renderAccount();
+  }
+}
+async function signOut() {
+  if (syncMeta.dirty) await pushProfile();
+  try { await accountRequest('/logout', 'POST', {}); } catch { /* still sign out here */ }
+  signedOutLocally();
+  toast('Signed out. Your progress stays on this device too.');
+}
+async function deleteAccount(event) {
+  event.preventDefault();
+  const password = event.target.elements.password.value;
+  if (!confirm(`Delete the account "${account.user}" and everything synced to it? Progress saved on this device is kept.`)) return;
+  const result = await accountRequest('', 'DELETE', {password}).catch(() => ({ok: false, data: {error: 'Could not reach the server.'}}));
+  if (!result.ok) { account.error = result.data.error || 'Could not delete the account.'; renderAccount(); return; }
+  signedOutLocally();
+  toast('Account deleted.');
+}
+function syncLabel() {
+  if (!account.user) return account.available === false ? 'Saved in this browser' : 'Sign in to sync devices';
+  if (account.status === 'syncing') return 'Syncing…';
+  if (account.status === 'error') return 'Not synced yet';
+  return account.lastSync ? `Synced ${timeAgo(account.lastSync)}` : 'Synced';
+}
+function renderAccount() {
+  const box = $('#accountBox');
+  $('#profileSub').textContent = syncLabel();
+  $('#profileTrigger').classList.toggle('signed-in', Boolean(account.user));
+  $('#footerPrivacy').textContent = account.user ? `Signed in as ${account.user}. Progress syncs to your account.` : 'Profile, ratings, and progress stay in this browser unless you sign in.';
+  if (!box) return;
+  const error = account.error ? `<p class="account-error" role="alert">${escapeHTML(account.error)}</p>` : '';
+  if (account.available === false) {
+    box.innerHTML = `<p class="account-note">Accounts aren't switched on for this site yet, so everything stays in this browser.</p>`;
+    $('#profileCopy').textContent = 'This is a browser-local profile. Your progress, ratings, and favorites stay on this device unless you export them.';
+    return;
+  }
+  if (account.user) {
+    $('#profileCopy').textContent = 'Your progress, ratings, favorites, watch later list, and bookmarks sync to your account. Sign in with the same username on any device to pick up where you left off.';
+    box.innerHTML = `<div class="account-row"><span class="avatar big">${escapeHTML(account.user.charAt(0).toUpperCase())}</span><div><strong>${escapeHTML(account.user)}</strong><small class="sync-state ${account.status}">${escapeHTML(syncLabel())}</small></div>
+      <div class="account-actions"><button class="quiet-action compact" type="button" id="syncNow">Sync now</button><button class="quiet-action compact" type="button" id="signOut">Sign out</button></div></div>${error}
+      <details class="danger-zone"><summary>Delete account</summary><form id="deleteAccountForm"><p>This deletes your account and everything synced to it. Progress saved on this device is kept.</p><input name="password" type="password" autocomplete="current-password" placeholder="Your password" required aria-label="Password" /><button class="danger-action" type="submit">Delete my account</button></form></details>`;
+    $('#syncNow').addEventListener('click', () => pullProfile({force: true}));
+    $('#signOut').addEventListener('click', signOut);
+    $('#deleteAccountForm').addEventListener('submit', deleteAccount);
+    return;
+  }
+  $('#profileCopy').textContent = 'You are using a browser-local profile. Sign in to sync your progress between devices, like your computer and iPad.';
+  const typedName = box.querySelector('input[name="username"]')?.value || '';
+  const register = account.mode === 'register';
+  const working = account.status === 'working';
+  box.innerHTML = `<div class="account-tabs" role="tablist"><button type="button" role="tab" aria-selected="${!register}" data-account-mode="signin">Sign in</button><button type="button" role="tab" aria-selected="${register}" data-account-mode="register">Create account</button></div>
+    <form id="accountForm" class="account-form" novalidate>
+      <label>Username<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" required placeholder="3–20 letters, numbers or _" /></label>
+      <label>Password<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" minlength="8" maxlength="200" required placeholder="${register ? 'At least 8 characters' : 'Your password'}" /></label>
+      ${register ? '<label>Confirm password<input name="confirm" type="password" autocomplete="new-password" required placeholder="Type it again" /></label>' : ''}
+      ${error}
+      <button class="primary-action" type="submit" ${working ? 'disabled' : ''}>${working ? 'One moment…' : register ? 'Create account' : 'Sign in'}</button>
+      <p class="account-note">${register ? 'Your current progress on this device is added to the new account. There is no email, so keep your password safe: it cannot be reset.' : 'Progress already on this device is merged into your account.'}</p>
+    </form>`;
+  box.querySelectorAll('[data-account-mode]').forEach(button => button.addEventListener('click', () => { account.mode = button.dataset.accountMode; account.error = ''; renderAccount(); box.querySelector('input')?.focus(); }));
+  $('#accountForm').addEventListener('submit', submitAccountForm);
+  if (typedName) { $('#accountForm').elements.username.value = typedName; if (account.error) $('#accountForm').elements.password.focus(); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && account.user) pullProfile(); });
+window.addEventListener('online', () => { if (account.user) pullProfile({force: true}); });
+window.addEventListener('pagehide', () => { if (account.user && syncMeta.dirty) pushProfile(); });
+
+/* ==========================================================================
    Profile + settings dialogs
    ========================================================================== */
 function openProfile() {
@@ -1508,7 +1736,9 @@ function openProfile() {
   $('#favoriteCreatorSelect').innerHTML = '<option value="">No favorite</option>' + CREATORS.map(name => `<option value="${name}">${name}</option>`).join('');
   $('#favoriteCreatorSelect').value = profile.favoriteCreator || '';
   updateProfileUI();
+  renderAccount();
   $('#profileDialog').showModal();
+  if (account.available === null) pullProfile({force: true});
 }
 function exportProfile() {
   const payload = JSON.stringify({profile, exportedAt: new Date().toISOString(), playlistId: PLAYLIST_ID, format: 'unstable-universe-profile/2'}, null, 2);
@@ -1807,7 +2037,7 @@ $('#saveProfile').addEventListener('click', () => {
 });
 $('#exportProfile').addEventListener('click', exportProfile);
 $('#importProfile').addEventListener('change', event => importProfile(event.target.files[0]));
-$('#resetProfile').addEventListener('click', () => { if (confirm('Reset your local profile, ratings, favorites, watch later list, bookmarks, and saved watch progress on this device?')) { profile = defaultProfile(); try { localStorage.removeItem(PROFILE_KEY); } catch { /* ignore */ } renderLibrary(); $('#profileDialog').close(); } });
+$('#resetProfile').addEventListener('click', () => { if (confirm(`Reset your profile, ratings, favorites, watch later list, bookmarks, and saved watch progress${account.user ? ' on this device and in your account' : ' on this device'}?`)) { profile = defaultProfile(); try { localStorage.removeItem(PROFILE_KEY); } catch { /* ignore */ } if (account.user) saveProfile(); renderLibrary(); $('#profileDialog').close(); } });
 
 $('#playerWatched').addEventListener('click', () => { if (activeVideoId) toggleWatched(activeVideoId); });
 $('#playerFavorite').addEventListener('click', () => { if (activeVideoId) toggleFavorite(activeVideoId); });
@@ -1882,4 +2112,7 @@ renderLibrary();
 showHotbar(3000);
 if (catalogMeta.refreshedAt && videos.length) setNotice(`<strong>Showing your saved copy</strong> from ${timeAgo(catalogMeta.refreshedAt)}. Checking the official playlist for changes…`);
 tryOpenPendingVideo();
+renderAccount();
+if (syncMeta.username) pullProfile({force: true});
+else accountRequest('/me').then(result => { account.available = result.status !== 503 && result.status !== 404; if (result.ok && result.data.user) pullProfile({force: true}); else renderAccount(); }).catch(() => {});
 refreshPlaylist();
