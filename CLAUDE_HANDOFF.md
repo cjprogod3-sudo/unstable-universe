@@ -50,6 +50,14 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - **Scrollbars**: filter chips wrap on desktop (no horizontal scroll); on phones they swipe with a hidden bar and a fade edge. Shelves hide their bar and scroll with the mouse wheel. The page scrollbar is thin, transparent and tinted with the theme color.
 - **Hotbar** tucks away when idle. It reappears when the pointer nears the bottom center, a number key is pressed, it gets keyboard focus, the small bottom hint is clicked, or (on touch) the page scrolls up.
 
+## Upgrade round 4 (Claude, Nov 2026)
+
+- **Bug fixed**: the page background was painted on `<body>`, which covered every negative-z layer (theme wash, ambient light, floating items) since the original version. It now lives on `<html>`, and body is transparent. Keep it that way, or the background layers disappear again.
+- **Liquid glass system**: shared tokens `--lg-tint`, `--lg-sheen`, `--lg-blur`, `--lg-shadow`. Surfaces (`.lg`, cards, dialogs, banner, sidebar, top bar) get a pointer-following specular highlight (`--mx/--my`, set in JS) and a refracted rim (masked gradient border). Video cards use `content-visibility: auto` to keep 166 blurred cards fast. Honors `prefers-reduced-transparency`.
+- **Sidebar** (`#sidebar`) holds search, creators, my library, keyword tags, refine (sort/length/year), and settings (preset segmented control, toggles, volume), plus the profile. Three states in `body[data-sidebar]`: `open` (pinned), `rail` (icons only; expands over the page on hover or keyboard focus; toggle with `[` or the chevron; saved in settings), and `drawer` (≤980px, slides in over a scrim, closes after picking a creator or list).
+- The old filter panel and settings dialog are gone. `#settingsDialog` now only lists keyboard shortcuts (`?`).
+- **Per-video player map: not built.** Nothing in the playlist or YouTube data says where players are. It needs a source (world map + coordinates per video/timestamp) from the owner.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |
@@ -57,7 +65,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 | `unstable-universe-library-profile-v1` | profile: name, progress, ratings, favorites, **watchLater**, **bookmarks**, **favoriteCreator**, lastVideoId. Old profiles load unchanged. |
 | `unstable-universe-library-catalog-v1` | cached catalog |
 | `unstable-universe-library-catalog-meta-v1` | last refresh time, unavailable count |
-| `unstable-universe-library-settings-v1` | preset, transitions, sound, volume, theater |
+| `unstable-universe-library-settings-v1` | preset, transitions, sound, volume, theater, sidebar (`open`/`rail`) |
 | `unstable-universe-library-dismissed-new-v1` | video IDs whose new-upload banner was dismissed |
 
 ### Deliberately not built yet (owner decision, Nov 2026)
