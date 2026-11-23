@@ -47,11 +47,12 @@ export async function handleCatalog(request, env) {
       const snippet = video?.snippet || entry.snippet;
       return {
         id: entry.contentDetails.videoId,
-        position: index + 1,
+        position: Number(entry.snippet?.position ?? index) + 1,
         title: snippet.title,
         creator: creator(snippet.channelTitle),
         channelTitle: snippet.channelTitle,
-        date: new Date(snippet.publishedAt).toLocaleDateString('in-US', {year: 'numeric', month: 'short', day: 'numeric'}),
+        publishedAt: snippet.publishedAt,
+        date: new Date(snippet.publishedAt).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'}),
         ago: timeAgo(snippet.publishedAt),
         length: formatDuration(video?.contentDetails?.duration || 'PT0S'),
         views: views(video?.statistics?.viewCount),
