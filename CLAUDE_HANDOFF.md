@@ -1,4 +1,4 @@
-# Claude handoff — Unstable Universe Library
+# Claude handoff — Unstable Universe Experience
 
 ## Goal
 
@@ -66,6 +66,18 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - **Sync model** (`app.js`, "Accounts + cross-device sync"): the local profile stays the working copy. `saveProfile()` marks it dirty and pushes after 2.5 s. Pulls happen on load, on tab focus (≥15 s apart), and on reconnect. If only the server changed, its copy is adopted, so deletions such as un-favoriting propagate. If both sides changed (or on first sign-in), the copies are merged: newest progress per video, union of favorites/watch later/bookmarks, local ratings win. Sync state lives in `unstable-universe-library-sync-v1`. Visual settings stay per-device on purpose.
 - Tested end to end with two browser contexts against a SQLite stand-in for D1.
 
+## Upgrade round 6 (Claude, Nov 2026)
+
+- **Name**: Unstable Universe Experience (short name "Unstable UX"). Original icon set in `dist/icons/` (no Mojang art), generated from SVG; `icon.svg` is the source.
+- **Installable app**: `manifest.webmanifest` + `sw.js` (both in root and `dist/`). App files are network-first so deploys appear immediately; the catalog falls back to cache offline; textures and thumbnails are cached (max 400). Shortcuts: `?action=continue|storyline|calendar`.
+- **Storyline mode** (`settings.storyline`): "next" follows upload date across all creators (`storyOrder()` / `nextUp()`), plus a `storyline` sort option and a hero button that resumes the first unfinished video in story order.
+- **Auto-play next** (`settings.autoplay`, default on): a 10-second countdown card over the player when a video ends.
+- **Where was I?**: a recap card when the last activity before this visit is more than 8 hours old. It hides after the visitor opens a video or dismisses it (session only).
+- **Upload calendar**: a month grid with creator-colored dots; clicking a day lists its uploads.
+- **Advancements + inventory**: 26 advancements in `ACHIEVEMENTS`, each unlocking one cosmetic item with a rarity. The first-ever check seeds silently with a single summary toast. Unlocks, day log (`profile.days`), counters and the equipped item are part of the synced profile. Never paid, never loot boxes.
+- **Notifications**: web push with an **empty payload** (no encryption needed). The VAPID key pair is generated once and stored in D1 `config`. A cron (`*/30 * * * *`) runs `checkForNewUploads`: the first run seeds `known_videos`, later runs alert about new playlist entries published within 7 days (hidden videos excluded). Dead subscriptions (404/410) are removed. iOS needs the app installed to the Home Screen.
+- **Admin** (`ADMIN_USERNAMES` var in `wrangler.toml`, currently `cjprogod3`): announcement banner, featured video, hidden videos, stats, a test push to the current device, and "check playlist now". Public config is at `GET /api/site`.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |
@@ -76,6 +88,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 | `unstable-universe-library-settings-v1` | preset, transitions, sound, volume, theater, sidebar (`open`/`rail`) |
 | `unstable-universe-library-dismissed-new-v1` | video IDs whose new-upload banner was dismissed |
 | `unstable-universe-library-sync-v1` | signed-in username, server `updatedAt` at last sync, dirty flag |
+| `unstable-universe-site-config-v1` | cached copy of `/api/site` (announcement, featured, hidden) |
 
 ### Deliberately not built yet (owner decision, Nov 2026)
 

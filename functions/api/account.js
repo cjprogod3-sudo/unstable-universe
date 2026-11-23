@@ -16,10 +16,13 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id)`,
   `CREATE TABLE IF NOT EXISTS profiles (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, window_start INTEGER NOT NULL)`
+  `CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, window_start INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS push_subs (endpoint_hash TEXT PRIMARY KEY, endpoint TEXT NOT NULL, user_id TEXT, created_at INTEGER NOT NULL, last_ok INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS known_videos (id TEXT PRIMARY KEY, title TEXT, creator TEXT, published_at TEXT, first_seen INTEGER NOT NULL)`
 ];
 let schemaReady = null;
-function ensureSchema(db) {
+export function ensureSchema(db) {
   if (!schemaReady) schemaReady = db.batch(SCHEMA.map(sql => db.prepare(sql))).catch(error => { schemaReady = null; throw error; });
   return schemaReady;
 }
@@ -28,7 +31,7 @@ const encoder = new TextEncoder();
 const toHex = buffer => [...new Uint8Array(buffer)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 const fromHex = hex => new Uint8Array(hex.match(/../g).map(pair => parseInt(pair, 16)));
 const randomHex = bytes => toHex(crypto.getRandomValues(new Uint8Array(bytes)));
-const sha256 = async text => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
+export const sha256 = async text => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 
 async function hashPassword(password, saltHex, iterations = PBKDF2_ITERATIONS) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -42,7 +45,7 @@ function sameString(a, b) {
   return diff === 0;
 }
 
-function json(body, status = 200, extraHeaders = {}) {
+export function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {status, headers: {'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...extraHeaders}});
 }
 function sessionCookie(token, request) {
@@ -56,12 +59,12 @@ function readCookie(request) {
   const match = header.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]{64})`));
   return match ? match[1] : '';
 }
-function sameOrigin(request) {
+export function sameOrigin(request) {
   const origin = request.headers.get('Origin');
   if (!origin) return false;
   return origin === new URL(request.url).origin;
 }
-async function readBody(request, limit) {
+export async function readBody(request, limit) {
   const text = await request.text();
   if (text.length > limit) throw Object.assign(new Error('Request is too large.'), {status: 413});
   try { return JSON.parse(text || '{}'); } catch { throw Object.assign(new Error('Invalid JSON.'), {status: 400}); }
@@ -94,7 +97,7 @@ async function startSession(db, userId, request) {
   await db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(token), userId, now, now + SESSION_DAYS * 86400000).run();
   return sessionCookie(token, request);
 }
-async function currentUser(db, request) {
+export async function currentUser(db, request) {
   const token = readCookie(request);
   if (!token) return null;
   const row = await db.prepare(`SELECT users.id, users.username, sessions.token_hash FROM sessions JOIN users ON users.id = sessions.user_id
