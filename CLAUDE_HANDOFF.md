@@ -40,6 +40,16 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - **Profile**: favorite creator (opens in that theme), hours watched, progress per creator, highest personal-rated creator, and JSON import (validated) alongside export.
 - **API**: `/api/catalog` now also returns `durationSeconds`, `viewCount`, `chapters`, and `unavailable` (private/deleted entries are skipped client-side with a notice). It validates `pageToken`. `/api/comments` validates the video ID format.
 
+## Upgrade round 3 (Claude, Nov 2026)
+
+- **New-upload banner**: a large "New Unstable video!" banner at the top when a playlist video was uploaded within **2 days of the last successful Refresh playlist** (`catalogMeta.refreshedAt`). It hides once that video is watched or dismissed. Dismissals are stored in `unstable-universe-library-dismissed-new-v1`.
+- **New uploads** filter chip (My library): videos uploaded within 7 days of the last refresh.
+- **Themed background**: a `.theme-wash` layer of per-creator gradients (Spoke is multi-color rainbow), with ambient blobs using `--accent-two`.
+- **Interactive items**: each creator has its own item set (e.g. Wemmbu: mace, wind charge, breeze rod, amethyst…; Spoke: totem + rainbow dyes). These are decoration, not lore. Items float and can be grabbed, thrown (they bounce off the screen edges) and clicked (spin, sparks, sound). A mace thrown hard into the bottom edge makes a shockwave. Grabbing only works on empty background (see `BLOCKERS` in `app.js`), so it never steals clicks from buttons, cards or text.
+- **Spark trail** on a single `<canvas>` that follows the pointer, rainbow on Spoke. Off in Minimal / reduced motion. The rAF loop stops when nothing is moving and pauses when the tab is hidden.
+- **Scrollbars**: filter chips wrap on desktop (no horizontal scroll); on phones they swipe with a hidden bar and a fade edge. Shelves hide their bar and scroll with the mouse wheel. The page scrollbar is thin, transparent and tinted with the theme color.
+- **Hotbar** tucks away when idle. It reappears when the pointer nears the bottom center, a number key is pressed, it gets keyboard focus, the small bottom hint is clicked, or (on touch) the page scrolls up.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |
@@ -48,6 +58,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 | `unstable-universe-library-catalog-v1` | cached catalog |
 | `unstable-universe-library-catalog-meta-v1` | last refresh time, unavailable count |
 | `unstable-universe-library-settings-v1` | preset, transitions, sound, volume, theater |
+| `unstable-universe-library-dismissed-new-v1` | video IDs whose new-upload banner was dismissed |
 
 ### Deliberately not built yet (owner decision, Nov 2026)
 
