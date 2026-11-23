@@ -13,6 +13,9 @@ The site fetches the videos currently in that one playlist from the YouTube Data
 - Tags such as Civilization, Law, Dimension, War, Mafia, Prison, and Bases & vaults are **automatic keyword tags**, not claimed official arc names.
 - The device profile, ratings, favorites, watch status, and playback positions are saved only in that browser's `localStorage`. They do not make a real account, sign visitors in, or sync to another device.
 - Videos play in an embedded YouTube player. The app resumes a saved position when YouTube's player API is available.
+- Watch later, bookmarks, favorite creator, and visual/sound settings are also browser-local. Export/import moves them between browsers by hand.
+- Chapters appear only when the uploader wrote timestamps in the YouTube description.
+- Creator transitions and sound effects can be turned off in Settings, and are simplified automatically when the system asks for reduced motion.
 
 ## Free Cloudflare Workers deployment
 

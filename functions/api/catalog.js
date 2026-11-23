@@ -12,7 +12,23 @@ const timeAgo = iso => {
   const days = Math.max(1, Math.floor((Date.now() - new Date(iso)) / 86400000));
   return days < 30 ? `${days} days ago` : days < 365 ? `${Math.floor(days / 30)} months ago` : `${Math.floor(days / 365)} years ago`;
 };
-const creator = channel => /wemmbu/i.test(channel) ? 'Wemmbu' : /parrot/i.test(channel) ? 'Parrot' : /spoke/i.test(channel) ? 'Spoke' : /flamefrags/i.test(channel) ? 'FlameFrags' : channel;
+const creator = channel => /wemmbu/i.test(channel) ? 'Wemmbu' : /parrot/i.test(channel) ? 'Parrot' : /spoke/i.test(channel) ? 'Spoke' : /flamefrags/i.test(channel) ? 'FlameFrags' : /f0_?olish/i.test(channel) ? 'F0_olish' : channel;
+const durationSeconds = value => {
+  const match = String(value || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  return Number(match?.[1] || 0) * 3600 + Number(match?.[2] || 0) * 60 + Number(match?.[3] || 0);
+};
+// Chapters only when the uploader wrote them: YouTube requires the first at 0:00 and at least three.
+const chapters = description => {
+  const found = [];
+  for (const line of String(description || '').split(/\r?\n/)) {
+    const match = line.trim().match(/^[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?\s*[-–—:|]?\s*(.{1,90})$/);
+    if (!match) continue;
+    const t = match[1].split(':').map(Number).reduce((total, part) => total * 60 + part, 0);
+    if (found.length && t <= found[found.length - 1].t) continue;
+    found.push({t, label: match[2].trim()});
+  }
+  return found.length >= 3 && found[0].t === 0 ? found.slice(0, 60) : [];
+};
 const views = value => new Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 1}).format(Number(value || 0));
 
 function response(body, status = 200) {
@@ -37,6 +53,7 @@ export async function handleCatalog(request, env) {
     if (!playlistId) return response({error: 'playlistId is required.'}, 400);
     if (playlistId !== PLAYLIST_ID) return response({error: 'Only the official playlist is supported.'}, 400);
     const pageToken = url.searchParams.get('pageToken') || '';
+    if (pageToken && !/^[\w-]{1,200}$/.test(pageToken)) return response({error: 'Invalid pageToken.'}, 400);
     const page = await youtube('playlistItems', {part: 'snippet,contentDetails', playlistId, maxResults: '50', ...(pageToken ? {pageToken} : {})}, env.YOUTUBE_API_KEY);
     const entries = (page.items || []).filter(item => item.contentDetails?.videoId);
     const ids = entries.map(item => item.contentDetails.videoId);
@@ -55,11 +72,15 @@ export async function handleCatalog(request, env) {
         date: new Date(snippet.publishedAt).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'}),
         ago: timeAgo(snippet.publishedAt),
         length: formatDuration(video?.contentDetails?.duration || 'PT0S'),
+        durationSeconds: durationSeconds(video?.contentDetails?.duration),
         views: views(video?.statistics?.viewCount),
+        viewCount: Number(video?.statistics?.viewCount || 0),
         description: (snippet.description || '').slice(0, 260),
         thumbnail: snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || '',
+        chapters: chapters(video?.snippet?.description),
+        unavailable: !video,
         official: true,
-        verified: true
+        verified: Boolean(video)
       };
     });
     return response({videos, nextPageToken: page.nextPageToken || null, playlistId, refreshedAt: new Date().toISOString()});
