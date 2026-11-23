@@ -11,7 +11,8 @@ The site fetches the videos currently in that one playlist from the YouTube Data
 - Video metadata comes from the supplied YouTube playlist when the `YOUTUBE_API_KEY` Worker secret is configured.
 - Creator, personal-library, search, and auto-tag filters run in the visitor's browser.
 - Tags such as Civilization, Law, Dimension, War, Mafia, Prison, and Bases & vaults are **automatic keyword tags**, not claimed official arc names.
-- The device profile, ratings, favorites, watch status, and playback positions are saved only in that browser's `localStorage`. They do not make a real account, sign visitors in, or sync to another device.
+- Visitors can use the site without an account; their profile is saved in that browser's `localStorage`.
+- Optional accounts (username + password) sync progress, ratings, favorites, watch later, and bookmarks between devices. Accounts are stored in a Cloudflare D1 database bound as `DB`; see `wrangler.toml`.
 - Videos play in an embedded YouTube player. The app resumes a saved position when YouTube's player API is available.
 - Watch later, bookmarks, favorite creator, and visual/sound settings are also browser-local. Export/import moves them between browsers by hand.
 - Chapters appear only when the uploader wrote timestamps in the YouTube description.

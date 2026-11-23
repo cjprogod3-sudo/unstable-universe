@@ -8,3 +8,10 @@ directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
+
+# Accounts + cross-device sync. No database_id on purpose: Wrangler (4.45+)
+# creates this D1 database automatically on the first deploy and keeps it linked.
+# If you create it by hand instead, give it this exact name.
+[[d1_databases]]
+binding = "DB"
+database_name = "unstable-universe-accounts"

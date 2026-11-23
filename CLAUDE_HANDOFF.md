@@ -58,6 +58,14 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - The old filter panel and settings dialog are gone. `#settingsDialog` now only lists keyboard shortcuts (`?`).
 - **Per-video player map: not built.** Nothing in the playlist or YouTube data says where players are. It needs a source (world map + coordinates per video/timestamp) from the owner.
 
+## Upgrade round 5: accounts (Claude, Nov 2026)
+
+- **Server**: `functions/api/account.js`, routed from `worker.js` for `/api/account*`. D1 binding `DB` (database `unstable-universe-accounts`), declared in `wrangler.toml` **without** an ID so Wrangler ≥4.45 auto-creates it on deploy. Tables are created automatically on first request (`CREATE TABLE IF NOT EXISTS`). With no `DB` binding, every endpoint returns 503 and the UI says accounts aren't switched on.
+- **Endpoints**: `POST /register`, `POST /login`, `POST /logout`, `GET /me`, `PUT /profile` (optimistic concurrency via `baseUpdatedAt`, 409 + server copy on conflict), `DELETE /api/account` (password required).
+- **Security**: PBKDF2-SHA256 (100k iterations, per-user salt), constant-time compare, session token = 32 random bytes in an `HttpOnly; SameSite=Lax; Secure` cookie with only its SHA-256 stored. Same-origin `Origin` header required on every non-GET. Login is rate-limited per username+IP and sign-up per IP (10 per 15 min). Profiles are capped at 300 KB. There's no email, so **passwords cannot be reset**.
+- **Sync model** (`app.js`, "Accounts + cross-device sync"): the local profile stays the working copy. `saveProfile()` marks it dirty and pushes after 2.5 s. Pulls happen on load, on tab focus (≥15 s apart), and on reconnect. If only the server changed, its copy is adopted, so deletions such as un-favoriting propagate. If both sides changed (or on first sign-in), the copies are merged: newest progress per video, union of favorites/watch later/bookmarks, local ratings win. Sync state lives in `unstable-universe-library-sync-v1`. Visual settings stay per-device on purpose.
+- Tested end to end with two browser contexts against a SQLite stand-in for D1.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |
@@ -67,6 +75,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 | `unstable-universe-library-catalog-meta-v1` | last refresh time, unavailable count |
 | `unstable-universe-library-settings-v1` | preset, transitions, sound, volume, theater, sidebar (`open`/`rail`) |
 | `unstable-universe-library-dismissed-new-v1` | video IDs whose new-upload banner was dismissed |
+| `unstable-universe-library-sync-v1` | signed-in username, server `updatedAt` at last sync, dirty flag |
 
 ### Deliberately not built yet (owner decision, Nov 2026)
 
@@ -128,7 +137,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 
 ### Optional future platform work
 
-- For cross-device accounts, add a real authentication and database service only with the owner’s approval. Do not simulate it with `localStorage`.
+- Accounts exist now. Possible next steps: passkeys, an optional recovery email, admin tools.
 - Add moderation-safe community ratings or comments only with a backend, clear rules, and abuse controls.
 - Add analytics only with a visible privacy notice and the owner’s approval.
 

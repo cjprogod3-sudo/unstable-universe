@@ -59,7 +59,7 @@
       </section>
     </div>
     <div class="side-foot">
-      <button class="side-profile" id="profileTrigger" type="button"><span class="avatar" id="profileAvatar">?</span><span class="side-text"><strong id="profileLabel">This device</strong><small id="profileSub">Browser-local profile</small></span></button>
+      <button class="side-profile" id="profileTrigger" type="button"><span class="avatar" id="profileAvatar">?</span><span class="side-text"><strong id="profileLabel">This device</strong><small id="profileSub">Sign in to sync devices</small></span></button>
     </div>
   </aside>
 
@@ -123,7 +123,7 @@
 
   <footer>
     <span>UNOFFICIAL FAN LIBRARY</span>
-    <span>Profile, ratings, and progress stay in this browser only.</span>
+    <span id="footerPrivacy">Profile, ratings, and progress stay in this browser only.</span>
     <a href="https://www.youtube.com/playlist?list=PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg" target="_blank" rel="noreferrer">Open official playlist</a>
   </footer>
   </div>
@@ -179,8 +179,9 @@
 
   <dialog class="profile-dialog" id="profileDialog" aria-labelledby="profileTitle">
     <button class="close-button" data-close-dialog="profileDialog" aria-label="Close profile" type="button">×</button>
-    <p class="eyebrow">DEVICE PROFILE</p><h2 id="profileTitle">Your private library.</h2>
-    <p class="dialog-copy">This is a browser-local profile, not a cloud account. Your progress, ratings, and favorites stay on this device unless you export them.</p>
+    <p class="eyebrow">PROFILE &amp; ACCOUNT</p><h2 id="profileTitle">Your library, everywhere.</h2>
+    <p class="dialog-copy" id="profileCopy">This is a browser-local profile. Your progress, ratings, and favorites stay on this device unless you export them.</p>
+    <section class="account-box" id="accountBox" aria-label="Account"></section>
     <div class="field-grid">
       <label class="field-label">Display name<input id="profileNameInput" maxlength="28" placeholder="Choose a display name" /></label>
       <label class="field-label">Favorite creator<select id="favoriteCreatorSelect"><option value="">No favorite</option></select></label>
