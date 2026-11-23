@@ -15,10 +15,13 @@
   <a class="skip-link" href="#library">Skip to the video library</a>
   <div class="ambient ambient-one"></div>
   <div class="ambient ambient-two"></div>
+  <div class="ambient ambient-three"></div>
+  <div class="theme-wash" aria-hidden="true"></div>
   <div class="grain" aria-hidden="true"></div>
   <div class="artifact-field" id="artifactField" aria-hidden="true"></div>
   <div class="fx-layer" id="fxLayer" aria-hidden="true"></div>
   <div class="cursor-light" id="cursorLight" aria-hidden="true"></div>
+  <canvas class="spark-canvas" id="sparkCanvas" aria-hidden="true"></canvas>
   <div class="transition-layer" id="transitionLayer" aria-hidden="true"></div>
   <p class="sr-only" id="announcer" aria-live="polite"></p>
 
@@ -37,6 +40,8 @@
   </header>
 
   <main>
+    <section class="new-banner" id="newBanner" aria-label="New upload" hidden></section>
+
     <section class="hero-shell" aria-labelledby="pageTitle">
       <div class="hero-copy">
         <p class="eyebrow"><span></span> OFFICIAL PLAYLIST LIBRARY</p>
@@ -98,7 +103,8 @@
     <a href="https://www.youtube.com/playlist?list=PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg" target="_blank" rel="noreferrer">Open official playlist</a>
   </footer>
 
-  <nav class="hotbar" id="hotbar" aria-label="Quick navigation hotbar">
+  <button class="hotbar-hint" id="hotbarHint" type="button" aria-label="Show the hotbar"></button>
+  <nav class="hotbar tucked" id="hotbar" aria-label="Quick navigation hotbar">
     <span class="hotbar-label" id="hotbarLabel" aria-hidden="true"></span>
     <div class="hotbar-slots" id="hotbarSlots"></div>
   </nav>
@@ -164,9 +170,9 @@
     <p class="eyebrow">SETTINGS</p><h2 id="settingsTitle">Look, sound, and motion.</h2>
     <fieldset class="preset-picker">
       <legend>Visual preset</legend>
-      <label class="preset-card"><input type="radio" name="preset" value="minimal" /><strong>Minimal</strong><span>Theme colors switch instantly. No particles, no floating items.</span></label>
-      <label class="preset-card"><input type="radio" name="preset" value="balanced" /><strong>Balanced</strong><span>Creator transitions and a few ambient effects.</span></label>
-      <label class="preset-card"><input type="radio" name="preset" value="cinematic" /><strong>Cinematic</strong><span>Full particles, extra shockwaves, and light that follows your pointer.</span></label>
+      <label class="preset-card"><input type="radio" name="preset" value="minimal" /><strong>Minimal</strong><span>Theme colors switch instantly. Items stay still; no sparks.</span></label>
+      <label class="preset-card"><input type="radio" name="preset" value="balanced" /><strong>Balanced</strong><span>Creator transitions, floating items, and a spark trail.</span></label>
+      <label class="preset-card"><input type="radio" name="preset" value="cinematic" /><strong>Cinematic</strong><span>More items, more sparks, extra shockwaves, and light that follows your pointer.</span></label>
     </fieldset>
     <p class="motion-note" id="motionNote" hidden>Your system asks for reduced motion, so creator transitions are replaced with a simple color change.</p>
     <div class="setting-rows">

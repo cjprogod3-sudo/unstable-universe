@@ -12,12 +12,16 @@ const PROFILE_KEY = 'unstable-universe-library-profile-v1';
 const CATALOG_KEY = 'unstable-universe-library-catalog-v1';
 const CATALOG_META_KEY = 'unstable-universe-library-catalog-meta-v1';
 const SETTINGS_KEY = 'unstable-universe-library-settings-v1';
+const DISMISSED_KEY = 'unstable-universe-library-dismissed-new-v1';
+const DAY = 86400000;
+const NEW_BANNER_DAYS = 2;
+const NEW_FILTER_DAYS = 7;
 
 const CREATORS = ['Wemmbu', 'Parrot', 'Spoke', 'FlameFrags', 'F0_olish'];
 
 const icons = {
   All: 'nether_star.png', Wemmbu: 'mace.png', Parrot: 'spyglass.png', Spoke: 'totem_of_undying.png', FlameFrags: 'netherite_sword.png', F0_olish: 'trial_key.png', Other: 'compass_00.png',
-  'In progress': 'recovery_compass_00.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', 'Watch later': 'clock_00.png', Rated: 'amethyst_shard.png', Bookmarked: 'writable_book.png', Longform: 'clock_00.png',
+  'New uploads': 'firework_rocket.png', 'In progress': 'recovery_compass_00.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', 'Watch later': 'clock_00.png', Rated: 'amethyst_shard.png', Bookmarked: 'writable_book.png', Longform: 'clock_00.png',
   Civilization: 'end_crystal.png', Law: 'book.png', Dimension: 'ender_eye.png', War: 'netherite_sword.png', Mafia: 'echo_shard.png', Prison: 'iron_door.png', 'Bases & vaults': 'bundle.png',
   Random: 'ender_pearl.png', Search: 'spyglass.png', Settings: 'redstone.png', YouTube: 'painting.png'
 };
@@ -34,11 +38,12 @@ const themes = {
   Mafia: {key: 'mafia', accent: '#c49cff', rgb: '196,156,255', two: '#51368c'}
 };
 const PRESETS = {
-  minimal: {particles: 0, artifacts: 4, motes: 0, rings: 0, shake: false},
-  balanced: {particles: 14, artifacts: 7, motes: 10, rings: 1, shake: false},
-  cinematic: {particles: 30, artifacts: 10, motes: 22, rings: 2, shake: true}
+  minimal: {particles: 0, artifacts: 6, motes: 0, rings: 0, shake: false},
+  balanced: {particles: 14, artifacts: 11, motes: 10, rings: 1, shake: false},
+  cinematic: {particles: 30, artifacts: 16, motes: 22, rings: 2, shake: true}
 };
 const COLLECTION_EMPTY = {
+  'New uploads': ['No uploads in the last 7 days.', 'Videos show up here for a week after they are uploaded. Press Refresh playlist to check for new ones.'],
   'In progress': ['Nothing in progress yet.', 'Start any video and your place is saved here automatically.'],
   Watched: ['No watched videos yet.', 'Finish a video, or use "Mark watched", and it appears here.'],
   'Not started': ['You have started everything in this view.', 'Impressive. Try another creator or clear the filters.'],
@@ -325,14 +330,6 @@ function iconNameFor(state = filters) {
 }
 function effectiveFx() { return reducedMotion.matches ? 'minimal' : settings.preset; }
 
-function renderArtifacts(iconName, theme) {
-  const count = PRESETS[effectiveFx()].artifacts;
-  $('#artifactField').innerHTML = Array.from({length: count}, (_, index) => {
-    const left = (index * 17 + 3) % 95;
-    const top = (index * 23 + 11) % 86;
-    return `<img class="artifact" src="${item(iconName)}" alt="" style="--artifact-rgb:${theme.rgb};--drift-time:${7 + index}s;--drift-x:${index % 2 ? 22 : -22}px;--drift-y:${15 + index * 5}px;--spin:${index % 3 ? 17 : -12}deg;left:${left}%;top:${top}%">`;
-  }).join('');
-}
 function renderMotes() {
   const count = PRESETS[effectiveFx()].motes;
   $('#fxLayer').innerHTML = `<i class="scanline"></i>` + Array.from({length: count}, (_, index) => {
@@ -356,6 +353,286 @@ function applyTheme(name = themeNameFor(), iconName = iconNameFor()) {
   $('#activeMode').textContent = `${iconName.toUpperCase()} MODE`;
   renderArtifacts(iconName, theme);
 }
+
+/* ==========================================================================
+   Interactive background: themed floating items you can grab, throw and
+   click, plus a spark trail that follows the pointer. One rAF loop that
+   stops when nothing moves; transforms only.
+   ========================================================================== */
+const ITEM_SETS = {
+  All: ['nether_star.png', 'diamond.png', 'ender_eye.png', 'heart_of_the_sea.png', 'echo_shard.png', 'prismarine_shard.png'],
+  Wemmbu: ['mace.png', 'wind_charge.png', 'breeze_rod.png', 'amethyst_shard.png', 'ender_pearl.png', 'enchanted_book.png'],
+  Parrot: ['spyglass.png', 'feather.png', 'emerald.png', 'slime_ball.png', 'lime_dye.png', 'turtle_scute.png'],
+  Spoke: ['totem_of_undying.png', 'red_dye.png', 'orange_dye.png', 'yellow_dye.png', 'lime_dye.png', 'light_blue_dye.png', 'purple_dye.png', 'magenta_dye.png'],
+  FlameFrags: ['netherite_sword.png', 'blaze_powder.png', 'fire_charge.png', 'magma_cream.png', 'blaze_rod.png', 'netherite_ingot.png'],
+  F0_olish: ['trial_key.png', 'gold_ingot.png', 'honeycomb.png', 'clock_00.png', 'raw_gold.png', 'glowstone_dust.png'],
+  Other: ['compass_00.png', 'map.png', 'paper.png']
+};
+const SPARK_TINTS = {
+  All: ['#ffffff', '#8fd8ff', '#b5c2ff'], Wemmbu: ['#be85ff', '#e7c8ff', '#8a4dff'], Parrot: ['#77f59c', '#d4ffe0', '#2fbf6d'],
+  FlameFrags: ['#ff6d78', '#ffb36b', '#ff3d3d'], F0_olish: ['#ffc35c', '#fff2c8', '#ff9f2e'], Other: ['#ffffff', '#b9c3d6']
+};
+const BLOCKERS = 'button, a, input, select, textarea, label, dialog, summary, kbd, h1, h2, h3, p, .glass-card, .video-card, .shelf-card, .hotbar, .glass-nav, .empty-state, .toast, .new-banner';
+const field = {items: [], sparks: [], rings: [], frame: 0, last: 0, drag: null, hover: null, colors: SPARK_TINTS.All, rainbow: false, canvas: null, ctx: null, w: 0, h: 0, pointer: null};
+
+function itemSetFor(iconName) {
+  if (ITEM_SETS[iconName]) return ITEM_SETS[iconName];
+  return [icons[iconName] || icons.All, ...ITEM_SETS.All.slice(0, 3)];
+}
+function sparksEnabled() { return effectiveFx() !== 'minimal'; }
+function sizeCanvas() {
+  if (!field.canvas) return;
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  field.w = innerWidth;
+  field.h = innerHeight;
+  field.canvas.width = Math.round(field.w * ratio);
+  field.canvas.height = Math.round(field.h * ratio);
+  field.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  field.ctx.imageSmoothingEnabled = false;
+}
+function renderArtifacts(iconName, theme) {
+  const layer = $('#artifactField');
+  const count = PRESETS[effectiveFx()].artifacts;
+  const set = itemSetFor(iconName);
+  const mainCount = Math.max(1, Math.ceil(count / 3));
+  const small = innerWidth < 700 ? 0.72 : 1;
+  const previous = field.items;
+  field.colors = SPARK_TINTS[iconName] || [theme.accent, '#ffffff'];
+  field.rainbow = iconName === 'Spoke';
+  field.drag = null;
+  field.hover = null;
+  document.body.classList.remove('grabbing', 'over-artifact');
+  layer.innerHTML = '';
+  field.items = Array.from({length: count}, (_, index) => {
+    const file = index < mainCount || set.length === 1 ? set[0] : set[1 + ((index - mainCount) % (set.length - 1))];
+    const main = file === set[0];
+    const size = Math.round((main ? 58 : 40) * small * (0.85 + Math.random() * 0.35));
+    const element = document.createElement('img');
+    element.className = `artifact${main ? ' main' : ''}`;
+    element.src = `${ITEM_ROOT}${file}`;
+    element.alt = '';
+    element.draggable = false;
+    element.style.width = element.style.height = `${size}px`;
+    element.style.setProperty('--artifact-rgb', theme.rgb);
+    element.addEventListener('error', () => { element.remove(); }, {once: true});
+    layer.append(element);
+    const old = previous[index];
+    return {
+      el: element, file, main, size,
+      x: old ? old.x : size + Math.random() * Math.max(1, innerWidth - size * 2),
+      y: old ? old.y : size + Math.random() * Math.max(1, innerHeight - size * 2),
+      vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30,
+      rot: old ? old.rot : Math.random() * 360, vr: (Math.random() - 0.5) * 30,
+      phase: Math.random() * Math.PI * 2, pop: old ? 0.6 : 0
+    };
+  });
+  paintItems(performance.now());
+  ensureFieldLoop();
+}
+function paintItems() {
+  for (const entry of field.items) {
+    const held = field.drag?.item === entry;
+    const scale = 1 + entry.pop * 0.45 + (held || field.hover === entry ? 0.14 : 0);
+    entry.el.style.transform = `translate3d(${entry.x - entry.size / 2}px, ${entry.y - entry.size / 2}px, 0) rotate(${entry.rot}deg) scale(${scale})`;
+  }
+}
+function itemAt(x, y) {
+  for (let index = field.items.length - 1; index >= 0; index -= 1) {
+    const entry = field.items[index];
+    if (!entry.el.isConnected) continue;
+    const reach = entry.size * 0.62;
+    if ((x - entry.x) ** 2 + (y - entry.y) ** 2 <= reach * reach) return entry;
+  }
+  return null;
+}
+function openSpot(target) { return !(target instanceof Element) || !target.closest(BLOCKERS); }
+function sparkColor(index = 0) {
+  if (field.rainbow) return `hsl(${Math.round((performance.now() / 6 + index * 37) % 360)} 95% 66%)`;
+  return field.colors[index % field.colors.length];
+}
+function spawnSparks(x, y, count, {speed = 90, life = 0.7, spread = Math.PI * 2, angle = 0, gravity = 260} = {}) {
+  if (!sparksEnabled()) return;
+  for (let index = 0; index < count; index += 1) {
+    const direction = angle + (Math.random() - 0.5) * spread;
+    const velocity = speed * (0.35 + Math.random() * 0.75);
+    field.sparks.push({x, y, vx: Math.cos(direction) * velocity, vy: Math.sin(direction) * velocity, life: life * (0.6 + Math.random() * 0.6), max: life, size: 2 + Math.round(Math.random() * 2.5), color: sparkColor(index), gravity});
+  }
+  if (field.sparks.length > 420) field.sparks.splice(0, field.sparks.length - 420);
+  ensureFieldLoop();
+}
+function drawEffects(dt) {
+  const ctx = field.ctx;
+  if (!ctx) return;
+  ctx.clearRect(0, 0, field.w, field.h);
+  if (!field.sparks.length && !field.rings.length) return;
+  ctx.globalCompositeOperation = 'lighter';
+  field.sparks = field.sparks.filter(spark => {
+    spark.life -= dt;
+    if (spark.life <= 0) return false;
+    spark.vy += spark.gravity * dt;
+    spark.vx *= Math.pow(0.25, dt);
+    spark.x += spark.vx * dt;
+    spark.y += spark.vy * dt;
+    const alpha = Math.min(1, spark.life / spark.max * 1.4);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = spark.color;
+    const size = spark.size * (0.5 + alpha * 0.5);
+    ctx.fillRect(Math.round(spark.x - size / 2), Math.round(spark.y - size / 2), size, size);
+    return true;
+  });
+  field.rings = field.rings.filter(ring => {
+    ring.life -= dt;
+    if (ring.life <= 0) return false;
+    const progress = 1 - ring.life / ring.max;
+    ctx.globalAlpha = 1 - progress;
+    ctx.strokeStyle = ring.color;
+    ctx.lineWidth = 3 * (1 - progress) + 1;
+    ctx.beginPath();
+    ctx.ellipse(ring.x, ring.y, ring.radius * progress, ring.radius * progress * 0.35, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    return true;
+  });
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+}
+function fieldTick(now) {
+  field.frame = 0;
+  const dt = Math.min(0.05, field.last ? (now - field.last) / 1000 : 0.016);
+  field.last = now;
+  const floating = effectiveFx() !== 'minimal';
+  const width = innerWidth;
+  const height = innerHeight;
+  let moving = false;
+  for (const entry of field.items) {
+    entry.pop = Math.max(0, entry.pop - dt * 2.5);
+    if (field.drag?.item === entry) { moving = true; continue; }
+    if (floating) {
+      entry.vx += Math.sin(now / 1700 + entry.phase) * 9 * dt;
+      entry.vy += Math.cos(now / 2100 + entry.phase) * 9 * dt;
+    }
+    const friction = Math.pow(0.45, dt);
+    entry.vx *= friction;
+    entry.vy *= friction;
+    entry.vr *= Math.pow(0.6, dt);
+    if (floating && Math.abs(entry.vr) < 6) entry.vr += (entry.vr >= 0 ? 4 : -4) * dt;
+    entry.x += entry.vx * dt;
+    entry.y += entry.vy * dt;
+    entry.rot += entry.vr * dt;
+    const radius = entry.size / 2;
+    if (entry.x < radius) { entry.x = radius; entry.vx = Math.abs(entry.vx) * 0.55; }
+    if (entry.x > width - radius) { entry.x = width - radius; entry.vx = -Math.abs(entry.vx) * 0.55; }
+    if (entry.y < radius) { entry.y = radius; entry.vy = Math.abs(entry.vy) * 0.55; }
+    if (entry.y > height - radius) {
+      const impact = entry.vy;
+      entry.y = height - radius;
+      entry.vy = -Math.abs(entry.vy) * 0.45;
+      if (impact > 700) landImpact(entry, impact);
+    }
+    if (Math.abs(entry.vx) + Math.abs(entry.vy) > 4 || entry.pop > 0) moving = true;
+  }
+  paintItems(now);
+  drawEffects(dt);
+  if (!document.hidden && (floating || moving || field.sparks.length || field.rings.length)) field.frame = requestAnimationFrame(fieldTick);
+  else field.last = 0;
+}
+function ensureFieldLoop() { if (!field.frame && !document.hidden) field.frame = requestAnimationFrame(fieldTick); }
+
+function itemSound(entry, strength = 1) {
+  const bus = audio.bus();
+  if (!bus) return;
+  const name = entry.file.replace('.png', '');
+  if (name === 'mace') { tone(bus, 0, 0.3, {from: 170, to: 45, gain: 0.5 * strength}); noise(bus, 0, 0.16, {filter: 'lowpass', from: 900, to: 200, gain: 0.35 * strength}); tone(bus, 0.04, 0.9, {type: 'triangle', from: 587, gain: 0.05}); }
+  else if (name.includes('sword') || name.includes('netherite') || name === 'trial_key' || name.includes('ingot')) { [1240, 1830, 2620].forEach(frequency => tone(bus, 0, 0.35, {from: frequency, gain: 0.05 * strength})); }
+  else if (name === 'totem_of_undying') { [784, 988, 1175, 1568].forEach((frequency, index) => tone(bus, index * 0.05, 0.5, {type: 'triangle', from: frequency, gain: 0.06})); }
+  else if (name === 'spyglass') { tone(bus, 0, 0.03, {type: 'square', from: 2200, gain: 0.07}); tone(bus, 0.05, 0.03, {type: 'square', from: 1500, gain: 0.06}); }
+  else if (name.includes('fire') || name.includes('blaze') || name.includes('magma')) { noise(bus, 0, 0.4, {filter: 'lowpass', from: 1200, to: 300, gain: 0.2 * strength}); }
+  else { tone(bus, 0, 0.45, {type: 'triangle', from: 520 + Math.random() * 500, gain: 0.07}); }
+  setTimeout(() => bus.disconnect(), 1600);
+}
+function clickItem(entry) {
+  entry.pop = 1;
+  entry.vr += (Math.random() < 0.5 ? -1 : 1) * 620;
+  entry.vy -= 60;
+  spawnSparks(entry.x, entry.y, 26, {speed: 220, life: 0.8});
+  field.rings.push({x: entry.x, y: entry.y, radius: entry.size * 2.2, life: 0.45, max: 0.45, color: sparkColor(1)});
+  itemSound(entry);
+  ensureFieldLoop();
+}
+function landImpact(entry, impact) {
+  const strength = Math.min(1, impact / 1800);
+  spawnSparks(entry.x, entry.y + entry.size / 2, Math.round(14 + strength * 26), {speed: 160 + strength * 200, angle: -Math.PI / 2, spread: Math.PI * 0.9, life: 0.7});
+  if (entry.file === 'mace.png') field.rings.push({x: entry.x, y: entry.y + entry.size / 2, radius: 120 + strength * 220, life: 0.6, max: 0.6, color: sparkColor(0)});
+  itemSound(entry, 0.5 + strength * 0.5);
+}
+
+(function initField() {
+  field.canvas = $('#sparkCanvas');
+  field.ctx = field.canvas.getContext('2d');
+  sizeCanvas();
+  window.addEventListener('resize', () => {
+    sizeCanvas();
+    for (const entry of field.items) { entry.x = clamp(entry.x, entry.size / 2, innerWidth - entry.size / 2); entry.y = clamp(entry.y, entry.size / 2, innerHeight - entry.size / 2); }
+    paintItems();
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { field.last = 0; ensureFieldLoop(); } });
+  window.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || document.querySelector('dialog:modal') || !openSpot(event.target)) return;
+    const entry = itemAt(event.clientX, event.clientY);
+    if (!entry) return;
+    event.preventDefault();
+    const now = performance.now();
+    field.drag = {item: entry, id: event.pointerId, startX: event.clientX, startY: event.clientY, start: now, offsetX: entry.x - event.clientX, offsetY: entry.y - event.clientY, trail: [{x: event.clientX, y: event.clientY, t: now}]};
+    entry.vx = entry.vy = 0;
+    entry.el.classList.add('held');
+    document.body.classList.add('grabbing');
+    ensureFieldLoop();
+  });
+  window.addEventListener('pointermove', event => {
+    const now = performance.now();
+    const drag = field.drag;
+    if (drag && drag.id === event.pointerId) {
+      drag.item.x = clamp(event.clientX + drag.offsetX, 0, innerWidth);
+      drag.item.y = clamp(event.clientY + drag.offsetY, 0, innerHeight);
+      drag.trail.push({x: event.clientX, y: event.clientY, t: now});
+      if (drag.trail.length > 6) drag.trail.shift();
+    } else if (event.pointerType === 'mouse') {
+      const hovered = openSpot(event.target) && !document.querySelector('dialog:modal') ? itemAt(event.clientX, event.clientY) : null;
+      if (hovered !== field.hover) {
+        field.hover?.el.classList.remove('hot');
+        hovered?.el.classList.add('hot');
+        field.hover = hovered;
+        document.body.classList.toggle('over-artifact', Boolean(hovered));
+        paintItems();
+      }
+    }
+    if (sparksEnabled() && !document.querySelector('dialog:modal')) {
+      const previous = field.pointer;
+      field.pointer = {x: event.clientX, y: event.clientY};
+      const distance = previous ? Math.hypot(event.clientX - previous.x, event.clientY - previous.y) : 0;
+      const count = Math.min(5, Math.floor(distance / 9)) + (effectiveFx() === 'cinematic' ? 1 : 0);
+      if (count) spawnSparks(event.clientX, event.clientY, count, {speed: 45, life: 0.55, gravity: 140});
+    }
+  }, {passive: true});
+  const release = event => {
+    const drag = field.drag;
+    if (!drag || drag.id !== event.pointerId) return;
+    const entry = drag.item;
+    field.drag = null;
+    entry.el.classList.remove('held');
+    document.body.classList.remove('grabbing');
+    const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+    if (moved < 6 && performance.now() - drag.start < 400) { clickItem(entry); return; }
+    const first = drag.trail[0];
+    const last = drag.trail[drag.trail.length - 1];
+    const span = Math.max(16, last.t - first.t);
+    entry.vx = clamp((last.x - first.x) / span * 1000, -2600, 2600);
+    entry.vy = clamp((last.y - first.y) / span * 1000, -2600, 2600);
+    entry.vr += entry.vx * 0.4;
+    ensureFieldLoop();
+  };
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+})();
 
 const transitionLayer = $('#transitionLayer');
 let activeRun = null;
@@ -622,7 +899,7 @@ function allTags() { return [...new Set(videos.flatMap(video => video.tags))]; }
 function filterDefinitions() {
   return [
     {key: 'creator', label: 'CREATORS', values: creatorsPresent()},
-    {key: 'collection', label: 'MY LIBRARY', values: ['All', 'In progress', 'Watched', 'Not started', 'Favorites', 'Watch later', 'Rated', 'Bookmarked', 'Longform']},
+    {key: 'collection', label: 'MY LIBRARY', values: ['All', 'New uploads', 'In progress', 'Watched', 'Not started', 'Favorites', 'Watch later', 'Rated', 'Bookmarked', 'Longform']},
     {key: 'tag', label: 'KEYWORD TAGS', values: ['All', ...allTags()]}
   ];
 }
@@ -654,6 +931,7 @@ function yearOf(video) { const date = new Date(video.publishedAt || video.date);
 function matches(video, state = filters) {
   if (state.creator !== 'All' && video.creator !== state.creator) return false;
   const status = statusFor(video);
+  if (state.collection === 'New uploads' && !isNewUpload(video, NEW_FILTER_DAYS)) return false;
   if (state.collection === 'In progress' && status !== 'In progress') return false;
   if (state.collection === 'Watched' && status !== 'Watched') return false;
   if (state.collection === 'Not started' && status !== 'Not started') return false;
@@ -671,6 +949,39 @@ function matches(video, state = filters) {
   return words.every(word => haystack.includes(word));
 }
 const byDate = video => new Date(video.publishedAt || video.date).getTime() || 0;
+// "New" is measured from the last successful Refresh playlist, not from whenever the page is viewed.
+function referenceTime() { return Number(catalogMeta.refreshedAt) || Date.now(); }
+function isNewUpload(video, days) {
+  const published = byDate(video);
+  const reference = referenceTime();
+  return Boolean(published) && published <= reference + 3600000 && reference - published <= days * DAY;
+}
+function uploadedAgo(video) {
+  const hours = Math.max(0, Math.round((Date.now() - byDate(video)) / 3600000));
+  if (hours < 1) return 'less than an hour ago';
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
+function dismissedNew() { const list = safeRead(DISMISSED_KEY, []); return Array.isArray(list) ? list : []; }
+function renderNewBanner() {
+  const banner = $('#newBanner');
+  const dismissed = dismissedNew();
+  const fresh = videos.filter(video => isNewUpload(video, NEW_BANNER_DAYS)).sort((a, b) => byDate(b) - byDate(a));
+  const lead = fresh.find(video => !dismissed.includes(video.id) && statusFor(video) !== 'Watched');
+  if (!lead) { banner.hidden = true; banner.innerHTML = ''; return; }
+  const theme = themes[lead.creator] || themes.Other;
+  const others = fresh.length - 1;
+  banner.style.setProperty('--card-rgb', theme.rgb);
+  banner.innerHTML = `<div class="new-banner-art"><img src="${escapeHTML(lead.thumbnail || `https://i.ytimg.com/vi/${lead.id}/hqdefault.jpg`)}" alt=""><span class="duration-badge">${escapeHTML(lead.length || '')}</span></div>
+    <div class="new-banner-copy">
+      <p class="new-kicker"><span class="new-dot"></span>Uploaded ${uploadedAgo(lead)}</p>
+      <h2 class="new-headline">New Unstable video!</h2>
+      <p class="new-title">${escapeHTML(lead.title)}</p>
+      <p class="new-meta"><img src="${item(lead.creator)}" alt="">${escapeHTML(lead.creator)} · ${escapeHTML(lead.date || '')}</p>
+      <div class="new-actions"><button class="primary-action" type="button" data-play="${lead.id}">Watch now</button>${others > 0 ? `<button class="quiet-action" type="button" data-shelf-filter="New uploads">See all ${fresh.length} new uploads</button>` : ''}<button class="text-button" type="button" data-dismiss-new="${lead.id}">Dismiss</button></div>
+    </div>`;
+  banner.hidden = false;
+}
 function orderedVideos() {
   const found = videos.filter(video => matches(video));
   const sorters = {
@@ -801,6 +1112,7 @@ function renderLibrary(options = {}) {
   if (!videos.length && loading) renderSkeletons();
   else $('#videoGrid').innerHTML = found.map(cardMarkup).join('');
   renderShelves();
+  renderNewBanner();
   renderHotbar();
   updateProfileUI();
   writeURL();
@@ -1267,7 +1579,21 @@ function flashHotbarLabel(text) {
   clearTimeout(hotbarLabelTimer);
   hotbarLabelTimer = setTimeout(() => label.classList.remove('show'), 1400);
 }
+const hotbarElement = $('#hotbar');
+let hotbarHideTimer = null;
+function showHotbar(holdFor = 2600) {
+  hotbarElement.classList.remove('tucked');
+  clearTimeout(hotbarHideTimer);
+  hotbarHideTimer = setTimeout(() => { if (!hotbarElement.matches(':hover, :focus-within')) hotbarElement.classList.add('tucked'); }, holdFor);
+}
+window.addEventListener('pointermove', event => { if (event.pointerType === 'mouse' && event.clientY > innerHeight - 90 && Math.abs(event.clientX - innerWidth / 2) < 340) showHotbar(); }, {passive: true});
+hotbarElement.addEventListener('pointerleave', () => showHotbar(900));
+hotbarElement.addEventListener('focusin', () => showHotbar(4000));
+$('#hotbarHint').addEventListener('click', () => showHotbar(4000));
+let lastScrollY = scrollY;
+window.addEventListener('scroll', () => { if (matchMedia('(hover: none)').matches && scrollY < lastScrollY - 8) showHotbar(); lastScrollY = scrollY; }, {passive: true});
 function runHotbar(key) {
+  showHotbar();
   const slot = HOTBAR.find(entry => entry.key === key);
   if (!slot) return;
   flashHotbarLabel(slot.label);
@@ -1282,7 +1608,7 @@ function paletteCommands() {
     {label: 'Continue watching', hint: 'C', icon: 'In progress', run: continueWatching},
     {label: 'Play a random unwatched video', hint: 'R', icon: 'Random', run: randomUnwatched},
     ...creatorsPresent().map(name => ({label: `Creator: ${name === 'All' ? 'All creators' : name}`, icon: name, run: () => setFilter('creator', name)})),
-    ...['In progress', 'Watched', 'Not started', 'Favorites', 'Watch later', 'Rated', 'Bookmarked', 'Longform'].map(name => ({label: `Show: ${name}`, icon: name, run: () => setFilter('collection', name)})),
+    ...['New uploads', 'In progress', 'Watched', 'Not started', 'Favorites', 'Watch later', 'Rated', 'Bookmarked', 'Longform'].map(name => ({label: `Show: ${name}`, icon: name, run: () => setFilter('collection', name)})),
     ...allTags().map(tag => ({label: `Keyword tag: ${tag}`, icon: tag, run: () => setFilter('tag', tag)})),
     ...[['playlist', 'Playlist order'], ['newest', 'Newest upload'], ['oldest', 'Oldest upload'], ['views', 'Most viewed'], ['rating', 'My rating'], ['longest', 'Longest'], ['shortest', 'Shortest']].map(([value, label]) => ({label: `Sort: ${label}`, icon: 'Search', run: () => setFilter('sort', value)})),
     {label: 'Clear all filters', icon: 'Other', run: clearFilters},
@@ -1365,6 +1691,21 @@ function handleCardClick(event) {
 }
 $('#videoGrid').addEventListener('click', handleCardClick);
 $('#shelfZone').addEventListener('click', handleCardClick);
+$('#newBanner').addEventListener('click', event => {
+  const dismiss = event.target.closest('[data-dismiss-new]');
+  if (dismiss) { safeWrite(DISMISSED_KEY, [...dismissedNew(), dismiss.dataset.dismissNew].slice(-40)); renderNewBanner(); return; }
+  handleCardClick(event);
+});
+// Shelves scroll sideways with a normal mouse wheel, since their scrollbars are hidden.
+$('#shelfZone').addEventListener('wheel', event => {
+  const row = event.target.closest('.shelf-row');
+  if (!row || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const max = row.scrollWidth - row.clientWidth;
+  if (max <= 0) return;
+  if ((event.deltaY < 0 && row.scrollLeft <= 0) || (event.deltaY > 0 && row.scrollLeft >= max - 1)) return;
+  event.preventDefault();
+  row.scrollLeft += event.deltaY;
+}, {passive: false});
 let searchTimer = null;
 $('#searchInput').addEventListener('input', event => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { filters.search = event.target.value; renderLibrary(); }, 120); });
 $('#searchInput').addEventListener('keydown', event => { if (event.key === 'Escape' && event.target.value) { event.target.value = ''; filters.search = ''; renderLibrary(); } });
@@ -1462,6 +1803,7 @@ if (!creatorFromURL && profile.favoriteCreator) filters.creator = profile.favori
 $('#searchInput').value = filters.search;
 applySettings();
 renderLibrary();
+showHotbar(3000);
 if (catalogMeta.refreshedAt && videos.length) setNotice(`<strong>Showing your saved copy</strong> from ${timeAgo(catalogMeta.refreshedAt)}. Checking the official playlist for changes…`);
 tryOpenPendingVideo();
 refreshPlaylist();
