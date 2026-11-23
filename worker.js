@@ -1,6 +1,5 @@
 import { handleCatalog } from './functions/api/catalog.js';
-// The comments route also works with the original Pages-style module export.
-import { onRequestGet as handleComments } from './functions/api/comments.js';
+import { handleComments } from './functions/api/comments.js';
 
 export default {
   async fetch(request, env) {
