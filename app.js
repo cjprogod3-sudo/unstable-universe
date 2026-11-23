@@ -1,7 +1,7 @@
 'use strict';
 
 /* ==========================================================================
-   Unstable Universe Library
+   Unstable Universe Experience
    Static, no-build front end. Personal data stays in this browser.
    Storage keys are stable: never rename PROFILE_KEY or CATALOG_KEY.
    ========================================================================== */
@@ -64,7 +64,7 @@ const safeWrite = (key, value) => { try { localStorage.setItem(key, JSON.stringi
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-const defaultProfile = () => ({name: '', progress: {}, ratings: {}, favorites: {}, watchLater: {}, bookmarks: {}, favoriteCreator: '', lastVideoId: ''});
+const defaultProfile = () => ({name: '', progress: {}, ratings: {}, favorites: {}, watchLater: {}, bookmarks: {}, favoriteCreator: '', lastVideoId: '', achievements: {}, days: {}, counters: {}, equipped: ''});
 function normalizeProfile(raw) {
   const source = isObject(raw) ? raw : {};
   const bookmarks = {};
@@ -84,10 +84,14 @@ function normalizeProfile(raw) {
     watchLater: isObject(source.watchLater) ? source.watchLater : {},
     bookmarks,
     favoriteCreator: CREATORS.includes(source.favoriteCreator) ? source.favoriteCreator : '',
-    lastVideoId: typeof source.lastVideoId === 'string' ? source.lastVideoId : ''
+    lastVideoId: typeof source.lastVideoId === 'string' ? source.lastVideoId : '',
+    achievements: isObject(source.achievements) ? Object.fromEntries(Object.entries(source.achievements).filter(([, at]) => Number(at) > 0)) : {},
+    days: isObject(source.days) ? Object.fromEntries(Object.entries(source.days).filter(([day]) => /^\d{4}-\d{2}-\d{2}$/.test(day)).slice(-400)) : {},
+    counters: isObject(source.counters) ? Object.fromEntries(Object.entries(source.counters).map(([key, value]) => [key, Number(value) || 0])) : {},
+    equipped: typeof source.equipped === 'string' ? source.equipped.slice(0, 40) : ''
   };
 }
-const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false, sidebar: 'open'});
+const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false, sidebar: 'open', storyline: false, autoplay: true});
 function normalizeSettings(raw) {
   const source = isObject(raw) ? raw : {};
   return {
@@ -96,7 +100,9 @@ function normalizeSettings(raw) {
     sound: source.sound !== false,
     volume: clamp(Number.isFinite(Number(source.volume)) ? Number(source.volume) : 0.5, 0, 1),
     theater: Boolean(source.theater),
-    sidebar: source.sidebar === 'rail' ? 'rail' : 'open'
+    sidebar: source.sidebar === 'rail' ? 'rail' : 'open',
+    storyline: Boolean(source.storyline),
+    autoplay: source.autoplay !== false
   };
 }
 
@@ -105,8 +111,15 @@ let settings = normalizeSettings(safeRead(SETTINGS_KEY, defaultSettings()));
 let catalogMeta = safeRead(CATALOG_META_KEY, {});
 const cachedCatalog = safeRead(CATALOG_KEY, []);
 let videos = Array.isArray(cachedCatalog) ? cachedCatalog : [];
+const SITE_KEY = 'unstable-universe-site-config-v1';
+let siteConfig = (() => { const raw = safeRead(SITE_KEY, {}); return {featured: raw.featured || null, announcement: raw.announcement || null, hidden: Array.isArray(raw.hidden) ? raw.hidden : []}; })();
+let allVideos = [];
+const sessionStart = Date.now();
+let openedThisSession = false;
+function visibleOnly(list) { const hidden = new Set(siteConfig.hidden); return list.filter(video => !hidden.has(video.id)); }
 let filters = {creator: 'All', collection: 'All', tag: 'All', search: '', sort: 'playlist', length: 'any', year: 'any'};
 let loading = false;
+let catalogComplete = false;
 let activeVideoId = '';
 let youtubePlayer = null;
 let playerTimer = null;
@@ -122,7 +135,7 @@ function saveProfile() {
   if (typeof markDirty === 'function') markDirty();
 }
 function saveSettings() { safeWrite(SETTINGS_KEY, settings); }
-function saveCatalog() { safeWrite(CATALOG_KEY, videos); safeWrite(CATALOG_META_KEY, catalogMeta); }
+function saveCatalog() { safeWrite(CATALOG_KEY, allVideos); safeWrite(CATALOG_META_KEY, catalogMeta); }
 
 /* ---------- video model ---------- */
 function progressFor(id) { return isObject(profile.progress[id]) ? profile.progress[id] : {seconds: 0, duration: 0, completed: false}; }
@@ -1003,6 +1016,7 @@ function orderedVideos() {
     rating: (a, b) => ratingFor(b.id) - ratingFor(a.id) || a.position - b.position,
     longest: (a, b) => b.durationSeconds - a.durationSeconds,
     shortest: (a, b) => a.durationSeconds - b.durationSeconds,
+    storyline: (a, b) => byDate(a) - byDate(b) || a.position - b.position,
     playlist: (a, b) => a.position - b.position
   };
   return [...found].sort(sorters[filters.sort] || sorters.playlist);
@@ -1125,6 +1139,10 @@ function renderLibrary(options = {}) {
   else $('#videoGrid').innerHTML = found.map(cardMarkup).join('');
   renderShelves();
   renderNewBanner();
+  renderAnnouncement();
+  renderFeatured();
+  renderRecap();
+  if (catalogComplete && !loading) checkAchievements();
   renderHotbar();
   updateProfileUI();
   writeURL();
@@ -1211,10 +1229,12 @@ async function refreshPlaylist() {
       all.push(...(page.videos || []));
       pageToken = page.nextPageToken || '';
       pages += 1;
-      if (!hadCache) { videos = all.filter(video => !video.unavailable).map(enrich); renderLibrary(); tryOpenPendingVideo(); }
+      if (!hadCache) { allVideos = all.filter(video => !video.unavailable).map(enrich); videos = visibleOnly(allVideos); renderLibrary(); tryOpenPendingVideo(); }
     } while (pageToken);
     unavailableCount = all.filter(video => video.unavailable).length;
-    videos = all.filter(video => !video.unavailable).map(enrich);
+    allVideos = all.filter(video => !video.unavailable).map(enrich);
+    videos = visibleOnly(allVideos);
+    catalogComplete = true;
     catalogMeta = {refreshedAt: Date.now(), unavailable: unavailableCount};
     saveCatalog();
     const skipped = unavailableCount ? ` ${unavailableCount} private or deleted ${unavailableCount === 1 ? 'entry was' : 'entries were'} skipped because YouTube cannot embed ${unavailableCount === 1 ? 'it' : 'them'}.` : '';
@@ -1229,7 +1249,18 @@ async function refreshPlaylist() {
     tryOpenPendingVideo();
   }
 }
+let pendingAction = new URLSearchParams(location.search).get('action') || '';
+function runPendingAction() {
+  if (!pendingAction || !videos.length) return;
+  const action = pendingAction;
+  pendingAction = '';
+  history.replaceState(null, '', location.pathname + location.search.replace(/[?&]action=[^&]*/, '').replace(/^&/, '?') + location.hash);
+  if (action === 'continue') continueWatching();
+  else if (action === 'storyline') startStoryline();
+  else if (action === 'calendar') openCalendar();
+}
 function tryOpenPendingVideo() {
+  runPendingAction();
   if (!pendingVideoFromURL || !getVideo(pendingVideoFromURL)) return;
   const id = pendingVideoFromURL;
   pendingVideoFromURL = '';
@@ -1300,6 +1331,9 @@ function clearFilters() {
    Player
    ========================================================================== */
 const playerDialog = $('#playerDialog');
+function storyOrder() { return [...videos].sort((a, b) => byDate(a) - byDate(b) || a.position - b.position); }
+function nextInStory(video) { const list = storyOrder(); const index = list.findIndex(candidate => candidate.id === video.id); return index >= 0 ? list[index + 1] : undefined; }
+function nextUp(video) { return settings.storyline ? nextInStory(video) : nextInPlaylist(video); }
 function nextInPlaylist(video) { return videos.filter(candidate => candidate.position > video.position).sort((a, b) => a.position - b.position)[0]; }
 function nextFromCreator(video) { return videos.filter(candidate => candidate.creator === video.creator && candidate.position > video.position).sort((a, b) => a.position - b.position)[0]; }
 function sameTimePerspectives(video) {
@@ -1315,9 +1349,9 @@ function sideCard(video, caption) {
 }
 function renderPlayerSide(video) {
   const blocks = [];
-  const next = nextInPlaylist(video);
+  const next = nextUp(video);
   const creatorNext = nextFromCreator(video);
-  if (next) blocks.push(`<h3>Up next in the playlist</h3>${sideCard(next, `#${next.position}`)}`);
+  if (next) blocks.push(settings.storyline ? `<h3>Up next in the storyline</h3>${sideCard(next, `${next.creator} · ${next.date || ''}`)}` : `<h3>Up next in the playlist</h3>${sideCard(next, `#${next.position}`)}`);
   if (creatorNext && creatorNext.id !== next?.id) blocks.push(`<h3>Next from ${escapeHTML(video.creator)}</h3>${sideCard(creatorNext, `#${creatorNext.position}`)}`);
   const perspectives = sameTimePerspectives(video);
   if (perspectives.length) blocks.push(`<h3>Other perspectives</h3><p class="side-note">Uploaded within three days of this video.</p>${perspectives.map(candidate => sideCard(candidate, candidate.creator)).join('')}`);
@@ -1360,6 +1394,8 @@ function recordPlayerProgress() {
     if (!duration || !seconds) return;
     const old = progressFor(activeVideoId);
     const completed = old.completed || seconds / duration >= 0.93;
+    if (completed && !old.completed) noteCompletion(activeVideoId, old);
+    noteActivity();
     profile.progress[activeVideoId] = {seconds, duration, completed, updatedAt: Date.now()};
     if (completed && profile.watchLater[activeVideoId]) delete profile.watchLater[activeVideoId];
     profile.lastVideoId = activeVideoId;
@@ -1413,7 +1449,10 @@ async function openPlayer(id) {
   $('#playerProgressBar').style.setProperty('--progress', `${percentFor(video)}%`);
   $('#playerProgressText').textContent = `${percentFor(video)}% of this video is saved on this device.`;
   $('#resumeNote').hidden = true;
-  $('#nextButton').disabled = !nextInPlaylist(video);
+  $('#nextButton').disabled = !nextUp(video);
+  cancelAutoplay();
+  openedThisSession = true;
+  renderRecap();
   $('#commentMount').innerHTML = '<button class="quiet-action" id="loadComments" type="button">Show comments</button>';
   $('#bookmarkLabel').value = '';
   refreshPlayerButtons();
@@ -1447,13 +1486,15 @@ async function openPlayer(id) {
           if (activeVideoId !== id) return;
           if (event.data === YT.PlayerState.ENDED) {
             const duration = Math.floor(event.target.getDuration() || 0);
+            noteCompletion(id, profile.progress[id]);
             profile.progress[id] = {seconds: duration, duration, completed: true, updatedAt: Date.now()};
             if (profile.watchLater[id]) delete profile.watchLater[id];
             profile.lastVideoId = id;
             saveProfile();
             refreshPlayerButtons();
-            const next = nextInPlaylist(video);
-            if (next) toast(`Finished. Up next: ${next.title}`);
+            const next = nextUp(video);
+            if (next && settings.autoplay) startAutoplay(next);
+            else if (next) toast(`Finished. Up next: ${next.title}`);
           }
           if (event.data === YT.PlayerState.PAUSED) recordPlayerProgress();
         }
@@ -1542,6 +1583,10 @@ function mergeProfiles(localRaw, remoteRaw) {
   merged.name = local.name || remote.name;
   merged.favoriteCreator = local.favoriteCreator || remote.favoriteCreator;
   merged.lastVideoId = local.lastVideoId || remote.lastVideoId;
+  merged.equipped = local.equipped || remote.equipped;
+  for (const id of new Set([...Object.keys(local.achievements), ...Object.keys(remote.achievements)])) merged.achievements[id] = Math.min(...[local.achievements[id], remote.achievements[id]].filter(Boolean));
+  merged.days = {...remote.days, ...local.days};
+  for (const key of new Set([...Object.keys(local.counters), ...Object.keys(remote.counters)])) merged.counters[key] = Math.max(local.counters[key] || 0, remote.counters[key] || 0);
   for (const id of new Set([...Object.keys(local.progress), ...Object.keys(remote.progress)])) merged.progress[id] = newerProgress(local.progress[id], remote.progress[id]);
   merged.ratings = {...remote.ratings, ...Object.fromEntries(Object.entries(local.ratings).filter(([, value]) => Number(value) > 0))};
   for (const id of new Set([...Object.keys(local.favorites), ...Object.keys(remote.favorites)])) if (local.favorites[id] || remote.favorites[id]) merged.favorites[id] = true;
@@ -1630,6 +1675,7 @@ async function pullProfile({force = false} = {}) {
   renderAccount();
 }
 function signedOutLocally(message = '') {
+  if (typeof isAdmin !== 'undefined' && isAdmin) { isAdmin = false; $('#adminTrigger').hidden = true; }
   account.user = '';
   account.status = 'idle';
   account.error = message;
@@ -1658,6 +1704,8 @@ async function submitAccountForm(event) {
     saveSyncMeta();
     await pushProfile();
     toast(register ? `Account created. Welcome, ${account.user}!` : `Signed in as ${account.user}`);
+    checkAdmin();
+    checkAchievements();
   } catch {
     account.status = 'idle';
     account.error = 'Could not reach the server. Check your connection.';
@@ -1779,6 +1827,10 @@ function syncSettingsControls() {
   $('#volumeRange').style.setProperty('--fill', `${Math.round(settings.volume * 100)}%`);
   $('#volumeOutput').textContent = `${Math.round(settings.volume * 100)}%`;
   $('#motionNote').hidden = !reducedMotion.matches;
+  $('#storylineToggle').checked = settings.storyline;
+  $('#autoplayToggle').checked = settings.autoplay;
+  $('#storyPill').hidden = !settings.storyline;
+  $('#storylineButton').textContent = settings.storyline ? 'Continue storyline' : 'Start storyline';
 }
 function openSettings() {
   openSidebar();
@@ -1897,6 +1949,12 @@ function paletteCommands() {
     ...allTags().map(tag => ({label: `Keyword tag: ${tag}`, icon: tag, run: () => setFilter('tag', tag)})),
     ...[['playlist', 'Playlist order'], ['newest', 'Newest upload'], ['oldest', 'Oldest upload'], ['views', 'Most viewed'], ['rating', 'My rating'], ['longest', 'Longest'], ['shortest', 'Shortest']].map(([value, label]) => ({label: `Sort: ${label}`, icon: 'Search', run: () => setFilter('sort', value)})),
     {label: 'Clear all filters', icon: 'Other', run: clearFilters},
+    {label: settings.storyline ? 'Turn storyline mode off' : 'Start storyline mode', icon: 'Bookmarked', run: () => (settings.storyline ? setStoryline(false) : startStoryline())},
+    {label: 'Open the upload calendar', icon: 'Watch later', run: () => openCalendar()},
+    {label: 'Open advancements', icon: 'Rated', run: () => openVault('advancements')},
+    {label: 'Open inventory', icon: 'Favorites', run: () => openVault('inventory')},
+    ...(isStandalone() ? [] : [{label: 'Install the app', icon: 'All', run: installApp}]),
+    ...(isAdmin ? [{label: 'Open the admin panel', icon: 'Settings', run: openAdmin}] : []),
     {label: 'Go to the library', icon: 'All', run: () => $('#library').scrollIntoView({behavior: 'smooth'})},
     {label: 'Open filters and settings', icon: 'Search', run: openSidebar},
     {label: 'Collapse or expand the sidebar', hint: '[', icon: 'Settings', run: toggleSidebarRail},
@@ -2043,7 +2101,7 @@ $('#playerWatched').addEventListener('click', () => { if (activeVideoId) toggleW
 $('#playerFavorite').addEventListener('click', () => { if (activeVideoId) toggleFavorite(activeVideoId); });
 $('#playerLater').addEventListener('click', () => { if (activeVideoId) toggleLater(activeVideoId); });
 $('#playerShare').addEventListener('click', () => { if (activeVideoId) copyText(shareURL(activeVideoId), 'Link to this video copied'); });
-$('#nextButton').addEventListener('click', () => { const current = getVideo(activeVideoId); const next = current && nextInPlaylist(current); if (next) openPlayer(next.id); });
+$('#nextButton').addEventListener('click', () => { const current = getVideo(activeVideoId); const next = current && nextUp(current); if (next) openPlayer(next.id); });
 $('#playerClose').addEventListener('click', closePlayer);
 $('#theaterButton').addEventListener('click', () => { settings.theater = !settings.theater; saveSettings(); if (playerDialog.classList.contains('mini')) minimizeOrExpand(); else showPlayerDialog('modal'); });
 $('#miniButton').addEventListener('click', minimizeOrExpand);
@@ -2058,6 +2116,7 @@ playerDialog.addEventListener('click', event => {
 });
 playerDialog.addEventListener('close', () => {
   if (suppressCloseTeardown) { suppressCloseTeardown = false; return; }
+  cancelAutoplay();
   teardownPlayer();
   activeVideoId = '';
   playerDialog.classList.remove('mini', 'theater');
@@ -2101,8 +2160,565 @@ reducedMotion.addEventListener?.('change', applySettings);
 window.addEventListener('pagehide', recordPlayerProgress);
 document.addEventListener('visibilitychange', () => { if (document.hidden) recordPlayerProgress(); });
 
+/* ==========================================================================
+   Storyline mode, auto-play next, "Where was I?", announcement + featured
+   ========================================================================== */
+function setStoryline(on, {announceIt = true} = {}) {
+  settings.storyline = on;
+  saveSettings();
+  if (on && filters.sort === 'playlist') filters.sort = 'storyline';
+  if (!on && filters.sort === 'storyline') filters.sort = 'playlist';
+  syncSettingsControls();
+  renderLibrary();
+  if (activeVideoId && getVideo(activeVideoId)) { renderPlayerSide(getVideo(activeVideoId)); $('#nextButton').disabled = !nextUp(getVideo(activeVideoId)); }
+  if (announceIt) toast(on ? 'Storyline mode on: next videos follow upload order across every creator.' : 'Storyline mode off: back to playlist order.');
+}
+function startStoryline() {
+  if (!settings.storyline) setStoryline(true, {announceIt: false});
+  const list = storyOrder();
+  const resume = list.find(video => statusFor(video) === 'In progress') || list.find(video => statusFor(video) !== 'Watched');
+  if (!resume) { toast('You have finished the whole storyline!'); return; }
+  toast(`Storyline: ${resume.creator} · ${resume.date || ''}`);
+  openPlayer(resume.id);
+}
+
+let autoplayTimer = null;
+function cancelAutoplay() {
+  clearInterval(autoplayTimer);
+  autoplayTimer = null;
+  const card = $('#autoplayCard');
+  if (card) { card.hidden = true; card.innerHTML = ''; }
+}
+function startAutoplay(next) {
+  cancelAutoplay();
+  const card = $('#autoplayCard');
+  let left = 10;
+  const theme = themes[next.creator] || themes.Other;
+  card.style.setProperty('--card-rgb', theme.rgb);
+  card.innerHTML = `<div class="autoplay-inner lg"><p class="eyebrow">${settings.storyline ? 'NEXT IN THE STORYLINE' : 'UP NEXT'}</p>
+    <div class="autoplay-row"><span class="autoplay-thumb"><img src="${escapeHTML(next.thumbnail || `https://i.ytimg.com/vi/${next.id}/mqdefault.jpg`)}" alt=""><svg class="autoplay-ring" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17"/></svg><strong class="autoplay-count" id="autoplayCount">${left}</strong></span>
+    <span class="autoplay-text"><strong>${escapeHTML(next.title)}</strong><span class="shelf-creator"><img src="${item(next.creator)}" alt="">${escapeHTML(next.creator)} · ${escapeHTML(next.length || '')}</span></span></div>
+    <div class="autoplay-actions"><button class="primary-action" type="button" data-autoplay="go">Play now</button><button class="quiet-action" type="button" data-autoplay="cancel">Cancel</button></div></div>`;
+  card.hidden = false;
+  card.querySelector('[data-autoplay="go"]').focus({preventScroll: true});
+  autoplayTimer = setInterval(() => {
+    left -= 1;
+    const counter = $('#autoplayCount');
+    if (counter) counter.textContent = String(left);
+    if (left <= 0) { cancelAutoplay(); openPlayer(next.id); }
+  }, 1000);
+  card.onclick = event => {
+    const action = event.target.closest('[data-autoplay]')?.dataset.autoplay;
+    if (action === 'go') { cancelAutoplay(); openPlayer(next.id); }
+    if (action === 'cancel') { cancelAutoplay(); toast('Auto-play cancelled'); }
+  };
+}
+
+const RECAP_KEY = 'uux-recap-dismissed';
+function renderRecap() {
+  const section = $('#recap');
+  if (!section) return;
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem(RECAP_KEY) === '1'; } catch { /* private mode */ }
+  const before = Object.entries(profile.progress).filter(([, entry]) => isObject(entry) && Number(entry.updatedAt) && Number(entry.updatedAt) < sessionStart);
+  const lastActivity = before.reduce((latest, [, entry]) => Math.max(latest, Number(entry.updatedAt)), 0);
+  const away = sessionStart - lastActivity;
+  if (dismissed || openedThisSession || !videos.length || !lastActivity || away < 8 * 3600000) { section.hidden = true; return; }
+  const recent = before.sort((a, b) => b[1].updatedAt - a[1].updatedAt).map(([id, entry]) => ({video: getVideo(id), entry})).filter(row => row.video);
+  const rows = recent.filter(row => !row.entry.completed).slice(0, 3);
+  const lastDone = recent.find(row => row.entry.completed);
+  const next = lastDone ? nextUp(lastDone.video) : null;
+  if (next && rows.length < 3 && !rows.some(row => row.video.id === next.id) && statusFor(next) !== 'Watched') rows.push({video: next, entry: null, isNext: true});
+  if (!rows.length) { section.hidden = true; return; }
+  const days = Math.round(away / 86400000);
+  section.innerHTML = `<div class="recap-head"><div><p class="eyebrow">WHERE WAS I?</p><h2 id="recapTitle">Welcome back${profile.name ? `, ${escapeHTML(profile.name)}` : ''}.</h2><p class="recap-sub">It's been ${days >= 1 ? `${days} day${days === 1 ? '' : 's'}` : `${Math.round(away / 3600000)} hours`}. Here's where you left off.</p></div><button class="text-button" type="button" data-recap="dismiss">Hide</button></div>
+    <div class="recap-row">${rows.map(({video, entry, isNext}) => {
+      const theme = themes[video.creator] || themes.Other;
+      const percent = percentFor(video);
+      const label = isNext ? `Next after "${lastDone.video.title.slice(0, 40)}${lastDone.video.title.length > 40 ? '…' : ''}"` : `Stopped at ${formatSeconds(entry.seconds)} of ${formatSeconds(entry.duration || video.durationSeconds)} · ${timeAgo(entry.updatedAt)}`;
+      return `<button class="recap-card" type="button" data-play="${video.id}" style="--card-rgb:${theme.rgb}"><span class="shelf-thumb"><img src="${escapeHTML(video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`)}" alt=""><span class="recap-play">${isNext ? 'Start' : 'Resume'}</span>${isNext ? '' : `<span class="progress-track"><i style="--progress:${percent}%"></i></span>`}</span><span class="shelf-text"><span class="shelf-creator"><img src="${item(video.creator)}" alt="">${escapeHTML(video.creator)}</span><strong>${escapeHTML(video.title)}</strong><span class="shelf-meta">${escapeHTML(label)}</span></span></button>`;
+    }).join('')}</div>`;
+  section.hidden = false;
+}
+
+function renderAnnouncement() {
+  const box = $('#announcement');
+  const note = siteConfig.announcement;
+  let dismissed = '';
+  try { dismissed = localStorage.getItem('uux-announcement-dismissed') || ''; } catch { /* ignore */ }
+  if (!note || !note.text || dismissed === String(note.id)) { box.hidden = true; return; }
+  box.className = `announcement tone-${note.tone || 'info'}`;
+  box.innerHTML = `<span class="announcement-dot"></span><p>${escapeHTML(note.text)}${note.link ? ` <a href="${escapeHTML(note.link)}" target="_blank" rel="noreferrer">Learn more</a>` : ''}</p><button class="close-button small" type="button" data-announcement-close aria-label="Dismiss announcement">×</button>`;
+  box.hidden = false;
+}
+function renderFeatured() {
+  const section = $('#featured');
+  const pick = siteConfig.featured && getVideo(siteConfig.featured.videoId);
+  if (!pick) { section.hidden = true; section.innerHTML = ''; return; }
+  const theme = themes[pick.creator] || themes.Other;
+  section.style.setProperty('--card-rgb', theme.rgb);
+  section.innerHTML = `<div class="featured-inner lg"><span class="featured-art"><img src="${escapeHTML(pick.thumbnail || `https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg`)}" alt=""></span>
+    <div class="featured-copy"><p class="eyebrow">★ FEATURED</p><h2>${escapeHTML(pick.title)}</h2>${siteConfig.featured.note ? `<p class="featured-note">${escapeHTML(siteConfig.featured.note)}</p>` : ''}
+    <p class="new-meta"><img src="${item(pick.creator)}" alt="">${escapeHTML(pick.creator)} · ${escapeHTML(pick.date || '')} · ${escapeHTML(pick.length || '')}</p>
+    <button class="primary-action" type="button" data-play="${pick.id}">${statusFor(pick) === 'In progress' ? 'Resume' : 'Watch'}</button></div></div>`;
+  section.hidden = false;
+}
+async function loadSiteConfig() {
+  try {
+    const response = await fetch('/api/site', {cache: 'no-store'});
+    if (!response.ok) return;
+    const next = await response.json();
+    siteConfig = {featured: next.featured || null, announcement: next.announcement || null, hidden: Array.isArray(next.hidden) ? next.hidden : []};
+    safeWrite(SITE_KEY, siteConfig);
+    if (allVideos.length) videos = visibleOnly(allVideos);
+    renderLibrary();
+  } catch { /* keep the cached copy */ }
+}
+
+/* ==========================================================================
+   Upload calendar
+   ========================================================================== */
+const calendar = {year: 0, month: 0, day: ''};
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const dayKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+function uploadsByDay() {
+  const map = new Map();
+  for (const video of videos) {
+    const time = byDate(video);
+    if (!time) continue;
+    const key = dayKey(new Date(time));
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(video);
+  }
+  for (const list of map.values()) list.sort((a, b) => byDate(a) - byDate(b));
+  return map;
+}
+function openCalendar(targetKey = '') {
+  const latest = videos.reduce((best, video) => Math.max(best, byDate(video)), 0);
+  const anchor = targetKey ? new Date(`${targetKey}T12:00:00`) : new Date(latest || Date.now());
+  calendar.year = anchor.getFullYear();
+  calendar.month = anchor.getMonth();
+  calendar.day = targetKey || (latest ? dayKey(new Date(latest)) : '');
+  profile.counters.calendar = (profile.counters.calendar || 0) + 1;
+  saveProfile();
+  renderCalendar();
+  $('#calendarDialog').showModal();
+  checkAchievements();
+}
+function renderCalendar() {
+  const map = uploadsByDay();
+  const first = new Date(calendar.year, calendar.month, 1);
+  const daysInMonth = new Date(calendar.year, calendar.month + 1, 0).getDate();
+  const todayKey = dayKey(new Date());
+  $('#calendarTitle').textContent = `${MONTHS[calendar.month]} ${calendar.year}`;
+  const monthCount = [...map.entries()].filter(([key]) => key.startsWith(`${calendar.year}-${String(calendar.month + 1).padStart(2, '0')}`)).reduce((sum, [, list]) => sum + list.length, 0);
+  $('#calLegend').innerHTML = `${CREATORS.map(name => `<span><i style="background:${themes[name].accent}"></i>${name}</span>`).join('')}<span class="cal-total">${monthCount} upload${monthCount === 1 ? '' : 's'} this month</span>`;
+  const cells = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(name => `<span class="cal-weekday">${name}</span>`);
+  for (let blank = 0; blank < first.getDay(); blank += 1) cells.push('<span class="cal-cell empty"></span>');
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const key = dayKey(new Date(calendar.year, calendar.month, day));
+    const list = map.get(key) || [];
+    const watchedAll = list.length && list.every(video => statusFor(video) === 'Watched');
+    const dots = list.slice(0, 6).map(video => `<i style="background:${(themes[video.creator] || themes.Other).accent}"></i>`).join('');
+    cells.push(list.length
+      ? `<button class="cal-cell has ${calendar.day === key ? 'selected' : ''} ${watchedAll ? 'done' : ''} ${key === todayKey ? 'today' : ''}" type="button" data-cal-day="${key}" aria-label="${MONTHS[calendar.month]} ${day}: ${list.length} upload${list.length === 1 ? '' : 's'}${watchedAll ? ', all watched' : ''}"><span class="cal-num">${day}</span><span class="cal-dots">${dots}</span>${list.length > 1 ? `<span class="cal-badge">${list.length}</span>` : ''}</button>`
+      : `<span class="cal-cell ${key === todayKey ? 'today' : ''}"><span class="cal-num">${day}</span></span>`);
+  }
+  $('#calGrid').innerHTML = cells.join('');
+  const list = map.get(calendar.day) || [];
+  const date = calendar.day ? new Date(`${calendar.day}T12:00:00`) : null;
+  $('#calDay').innerHTML = list.length
+    ? `<h3>${date.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'})}</h3><p class="side-note">${list.length} upload${list.length === 1 ? '' : 's'}${list.length > 1 ? ' · watch them in any order to see every perspective' : ''}</p>${list.map(video => sideCard(video, statusFor(video) === 'Watched' ? 'Watched' : statusFor(video) === 'In progress' ? `${percentFor(video)}% watched` : video.creator)).join('')}`
+    : '<p class="side-note">Pick a highlighted day to see what was uploaded.</p>';
+  const months = [...map.keys()].map(key => key.slice(0, 7)).sort();
+  const current = `${calendar.year}-${String(calendar.month + 1).padStart(2, '0')}`;
+  $('#calPrev').disabled = !months.length || current <= months[0];
+  $('#calNext').disabled = !months.length || current >= months[months.length - 1];
+}
+function shiftMonth(step) {
+  const map = uploadsByDay();
+  const months = [...new Set([...map.keys()].map(key => key.slice(0, 7)))].sort();
+  const current = `${calendar.year}-${String(calendar.month + 1).padStart(2, '0')}`;
+  const target = step > 0 ? months.find(month => month > current) : [...months].reverse().find(month => month < current);
+  if (!target) return;
+  calendar.year = Number(target.slice(0, 4));
+  calendar.month = Number(target.slice(5, 7)) - 1;
+  calendar.day = [...map.keys()].filter(key => key.startsWith(target)).sort()[0] || '';
+  renderCalendar();
+}
+
+/* ==========================================================================
+   Achievements ("advancements") + collectible inventory
+   Every advancement unlocks one cosmetic item. Unlocks sync with the account.
+   ========================================================================== */
+const RARITY = {
+  common: {label: 'Common', color: '#ffffff'},
+  rare: {label: 'Rare', color: '#55ffff'},
+  epic: {label: 'Epic', color: '#ff7cff'},
+  legendary: {label: 'Legendary', color: '#ffbf3f'},
+  mythic: {label: 'Mythic', color: '#ff5555'}
+};
+const todayKey = () => dayKey(new Date());
+function noteActivity() {
+  const key = todayKey();
+  if (!profile.days[key]) profile.days[key] = 1;
+  const hour = new Date().getHours();
+  if (hour < 5) profile.counters.nightOwl = 1;
+}
+function noteCompletion(id, previous) {
+  if (previous && previous.completed) return;
+  const video = getVideo(id);
+  if (settings.storyline) profile.counters.storyline = (profile.counters.storyline || 0) + 1;
+  if (video && Date.now() - byDate(video) <= 2 * 86400000) profile.counters.dayOne = 1;
+  noteActivity();
+}
+function streaks() {
+  const days = Object.keys(profile.days).sort();
+  if (!days.length) return {current: 0, best: 0};
+  let best = 1;
+  let run = 1;
+  for (let index = 1; index < days.length; index += 1) {
+    const gap = Math.round((new Date(`${days[index]}T12:00:00`) - new Date(`${days[index - 1]}T12:00:00`)) / 86400000);
+    run = gap === 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+  }
+  const last = days[days.length - 1];
+  const sinceLast = Math.round((new Date(`${todayKey()}T12:00:00`) - new Date(`${last}T12:00:00`)) / 86400000);
+  return {current: sinceLast <= 1 ? run : 0, best};
+}
+function collectionStats() {
+  const watched = videos.filter(video => statusFor(video) === 'Watched');
+  const byCreator = Object.fromEntries(CREATORS.map(name => {
+    const list = videos.filter(video => video.creator === name);
+    return [name, {done: list.filter(video => statusFor(video) === 'Watched').length, total: list.length}];
+  }));
+  return {
+    watched: watched.length, total: videos.length, byCreator,
+    creatorsTouched: CREATORS.filter(name => byCreator[name].done > 0).length,
+    hours: hoursWatched(), ratings: Object.values(profile.ratings).filter(value => Number(value) > 0).length,
+    favorites: Object.values(profile.favorites).filter(Boolean).length,
+    bookmarks: Object.values(profile.bookmarks).reduce((sum, list) => sum + list.length, 0),
+    streak: streaks(), counters: profile.counters, signedIn: Boolean(account.user),
+    installed: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+  };
+}
+const creatorGoal = (name) => stats => [stats.byCreator[name].done, stats.byCreator[name].total || 1];
+const ACHIEVEMENTS = [
+  {id: 'first', title: 'Taking Inventory', desc: 'Finish your first video.', item: 'book.png', rarity: 'common', goal: s => [s.watched, 1]},
+  {id: 'ten', title: 'Getting an Upgrade', desc: 'Finish 10 videos.', item: 'stone_pickaxe.png', rarity: 'common', goal: s => [s.watched, 10]},
+  {id: 'fifty', title: 'Diamonds!', desc: 'Finish 50 videos.', item: 'diamond.png', rarity: 'rare', goal: s => [s.watched, 50]},
+  {id: 'everything', title: 'The End?', desc: 'Finish every video in the playlist.', item: 'nether_star.png', rarity: 'mythic', goal: s => [s.watched, s.total || 1]},
+  {id: 'explorer', title: 'Adventuring Time', desc: 'Finish at least one video from every creator.', item: 'compass_00.png', rarity: 'rare', goal: s => [s.creatorsTouched, CREATORS.length]},
+  {id: 'wemmbu', title: 'Mace Master', desc: 'Finish every Wemmbu video.', item: 'mace.png', rarity: 'legendary', goal: creatorGoal('Wemmbu')},
+  {id: 'parrot', title: 'Eagle Eye', desc: 'Finish every Parrot video.', item: 'spyglass.png', rarity: 'legendary', goal: creatorGoal('Parrot')},
+  {id: 'spoke', title: 'Postmortal', desc: 'Finish every Spoke video.', item: 'totem_of_undying.png', rarity: 'legendary', goal: creatorGoal('Spoke')},
+  {id: 'flamefrags', title: 'Netherite Edge', desc: 'Finish every FlameFrags video.', item: 'netherite_sword.png', rarity: 'legendary', goal: creatorGoal('FlameFrags')},
+  {id: 'f0olish', title: 'Checkpoint Reached', desc: 'Finish every F0_olish video.', item: 'trial_key.png', rarity: 'epic', goal: creatorGoal('F0_olish')},
+  {id: 'fullserver', title: 'The Full Server', desc: 'Unlock all five creator advancements.', item: 'golden_helmet.png', rarity: 'mythic', goal: () => [['wemmbu', 'parrot', 'spoke', 'flamefrags', 'f0olish'].filter(id => profile.achievements[id]).length, 5]},
+  {id: 'marathon', title: 'Marathon', desc: 'Watch 10 hours in total.', item: 'clock_00.png', rarity: 'rare', goal: s => [Math.floor(s.hours), 10]},
+  {id: 'timelord', title: 'Time Lord', desc: 'Watch 50 hours in total.', item: 'recovery_compass_00.png', rarity: 'epic', goal: s => [Math.floor(s.hours), 50]},
+  {id: 'critic', title: 'Critic', desc: 'Rate 10 videos.', item: 'amethyst_shard.png', rarity: 'common', goal: s => [s.ratings, 10]},
+  {id: 'headcritic', title: 'Head Critic', desc: 'Rate 50 videos.', item: 'echo_shard.png', rarity: 'epic', goal: s => [s.ratings, 50]},
+  {id: 'collector', title: 'Collector', desc: 'Favorite 5 videos.', item: 'bundle.png', rarity: 'rare', goal: s => [s.favorites, 5]},
+  {id: 'cartographer', title: 'Cartographer', desc: 'Bookmark 5 moments.', item: 'map.png', rarity: 'rare', goal: s => [s.bookmarks, 5]},
+  {id: 'streak3', title: 'Hot Streak', desc: 'Watch on 3 days in a row.', item: 'blaze_powder.png', rarity: 'rare', goal: s => [s.streak.best, 3]},
+  {id: 'streak7', title: 'On Fire', desc: 'Watch on 7 days in a row.', item: 'fire_charge.png', rarity: 'epic', goal: s => [s.streak.best, 7]},
+  {id: 'streak30', title: 'Unstoppable', desc: 'Watch on 30 days in a row.', item: 'netherite_ingot.png', rarity: 'mythic', goal: s => [s.streak.best, 30]},
+  {id: 'lore', title: 'Lorekeeper', desc: 'Finish 10 videos in storyline mode.', item: 'enchanted_book.png', rarity: 'epic', goal: s => [s.counters.storyline || 0, 10]},
+  {id: 'calendar', title: 'Time Traveler', desc: 'Open the upload calendar.', item: 'ender_eye.png', rarity: 'common', goal: s => [Math.min(1, s.counters.calendar || 0), 1]},
+  {id: 'cloud', title: 'Cloud Walker', desc: 'Sign in to sync your progress.', item: 'elytra.png', rarity: 'epic', goal: s => [s.signedIn ? 1 : 0, 1]},
+  {id: 'home', title: 'Home Sweet Home', desc: 'Open the site as an installed app.', item: 'cake.png', rarity: 'rare', goal: s => [s.installed ? 1 : 0, 1]},
+  {id: 'nightowl', title: 'Night Owl', desc: 'Watch something between midnight and 5 a.m.', item: 'phantom_membrane.png', rarity: 'rare', secret: true, goal: s => [s.counters.nightOwl ? 1 : 0, 1]},
+  {id: 'dayone', title: 'Day One', desc: 'Finish a video within 2 days of its upload.', item: 'firework_rocket.png', rarity: 'epic', secret: true, goal: s => [s.counters.dayOne ? 1 : 0, 1]}
+];
+let achievementsSeeded = false;
+const advancementQueue = [];
+function checkAchievements() {
+  if (!videos.length) return;
+  const stats = collectionStats();
+  const fresh = [];
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const entry of ACHIEVEMENTS) {
+      if (profile.achievements[entry.id]) continue;
+      const [current, goal] = entry.goal(stats);
+      if (current >= goal) { profile.achievements[entry.id] = Date.now(); fresh.push(entry); }
+    }
+  }
+  const firstEver = !achievementsSeeded && !profile.counters.seeded;
+  achievementsSeeded = true;
+  if (firstEver) { profile.counters.seeded = 1; safeWrite(PROFILE_KEY, profile); if (typeof markDirty === 'function') markDirty(); }
+  if (fresh.length) {
+    safeWrite(PROFILE_KEY, profile);
+    if (typeof markDirty === 'function') markDirty();
+    if (!firstEver) fresh.forEach(entry => advancementQueue.push(entry));
+    else if (fresh.length) toast(`You already earned ${fresh.length} advancement${fresh.length === 1 ? '' : 's'}! Open your collection to see them.`);
+    pumpAdvancements();
+  }
+  updateVaultCount();
+}
+let advancementBusy = false;
+function pumpAdvancements() {
+  if (advancementBusy || !advancementQueue.length) return;
+  advancementBusy = true;
+  const entry = advancementQueue.shift();
+  const rarity = RARITY[entry.rarity];
+  const element = document.createElement('div');
+  element.className = `advancement rarity-${entry.rarity}`;
+  element.innerHTML = `<span class="adv-frame"><img src="${ITEM_ROOT}${entry.item}" alt=""></span><span><strong style="color:${entry.rarity === 'mythic' || entry.rarity === 'legendary' ? rarity.color : '#ffff55'}">${entry.rarity === 'mythic' || entry.rarity === 'legendary' ? 'Challenge Complete!' : 'Advancement Made!'}</strong><span>${escapeHTML(entry.title)}</span></span>`;
+  element.addEventListener('click', () => openVault('advancements'));
+  $('#advancements').append(element);
+  const bus = audio.bus();
+  if (bus) { [523, 659, 784, 1046].forEach((frequency, index) => tone(bus, index * 0.09, 0.6, {type: 'triangle', from: frequency, gain: 0.06})); setTimeout(() => bus.disconnect(), 1500); }
+  setTimeout(() => element.classList.add('out'), 4200);
+  setTimeout(() => { element.remove(); advancementBusy = false; pumpAdvancements(); }, 4700);
+}
+function updateVaultCount() {
+  const count = Object.keys(profile.achievements).filter(id => ACHIEVEMENTS.some(entry => entry.id === id)).length;
+  $('#vaultCount').textContent = count ? String(count) : '';
+  const equipped = ACHIEVEMENTS.find(entry => entry.item === profile.equipped && profile.achievements[entry.id]);
+  $('#avatarItem').hidden = !equipped;
+  if (equipped) { $('#avatarItem').src = `${ITEM_ROOT}${equipped.item}`; $('#avatarItem').title = equipped.title; }
+}
+
+let vaultTab = 'advancements';
+let vaultSelected = '';
+function openVault(tab = vaultTab) {
+  vaultTab = tab;
+  checkAchievements();
+  renderVault();
+  if (!$('#vaultDialog').open) $('#vaultDialog').showModal();
+}
+function renderVault() {
+  const stats = collectionStats();
+  const unlocked = ACHIEVEMENTS.filter(entry => profile.achievements[entry.id]);
+  $('#vaultSummary').textContent = `${unlocked.length} of ${ACHIEVEMENTS.length} advancements · ${stats.streak.current}-day streak (best ${stats.streak.best}) · ${stats.watched} of ${stats.total} videos finished. Items are cosmetic, earned by watching, and never sold.`;
+  document.querySelectorAll('[data-vault-tab]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.vaultTab === vaultTab)));
+  if (vaultTab === 'advancements') {
+    $('#vaultBody').innerHTML = `<div class="adv-grid">${ACHIEVEMENTS.map(entry => {
+      const done = Boolean(profile.achievements[entry.id]);
+      const [current, goal] = entry.goal(stats);
+      const hidden = entry.secret && !done;
+      const share = Math.min(100, Math.round(Math.min(current, goal) / goal * 100));
+      return `<article class="adv-card ${done ? 'done' : ''} rarity-${entry.rarity}" style="--rarity:${RARITY[entry.rarity].color}"><span class="adv-frame"><img src="${ITEM_ROOT}${hidden ? 'barrier.png' : entry.item}" alt="" ${done ? '' : 'class="locked"'}></span>
+        <div><h3>${hidden ? '???' : escapeHTML(entry.title)}</h3><p>${hidden ? 'Secret advancement. Keep watching.' : escapeHTML(entry.desc)}</p>
+        ${done ? `<p class="adv-date">Unlocked ${new Date(profile.achievements[entry.id]).toLocaleDateString()}</p>` : hidden ? '' : `<div class="adv-progress"><i style="width:${share}%"></i></div><p class="adv-date">${Math.min(current, goal)} / ${goal}</p>`}</div></article>`;
+    }).join('')}</div>`;
+    return;
+  }
+  const slots = [...ACHIEVEMENTS].sort((a, b) => Number(Boolean(profile.achievements[b.id])) - Number(Boolean(profile.achievements[a.id])));
+  const selected = ACHIEVEMENTS.find(entry => entry.id === vaultSelected && profile.achievements[entry.id]) || unlocked[0];
+  const totalSlots = Math.max(36, Math.ceil(slots.length / 9) * 9);
+  const slotHTML = Array.from({length: totalSlots}, (_, index) => {
+    const entry = slots[index];
+    if (!entry) return '<span class="inv-slot"></span>';
+    const have = Boolean(profile.achievements[entry.id]);
+    const name = have || !entry.secret ? entry.title : '???';
+    const itemName = entry.item.replace(/_00\.png|\.png/, '').replace(/_/g, ' ');
+    return `<button class="inv-slot ${have ? 'have' : 'missing'} ${['epic', 'legendary', 'mythic'].includes(entry.rarity) && have ? 'glint' : ''} ${selected?.id === entry.id ? 'selected' : ''}" type="button" data-inv="${entry.id}" style="--rarity:${RARITY[entry.rarity].color};--item:url('${ITEM_ROOT}${entry.item}')" aria-label="${escapeHTML(have ? `${itemName}, ${RARITY[entry.rarity].label}` : `Locked item from ${name}`)}"><img src="${ITEM_ROOT}${entry.item}" alt=""><span class="inv-tip"><b style="color:${RARITY[entry.rarity].color}">${escapeHTML(have ? itemName.replace(/\b\w/g, c => c.toUpperCase()) : 'Locked')}</b><i>${escapeHTML(RARITY[entry.rarity].label)}</i><i>${escapeHTML(have ? `From: ${entry.title}` : entry.secret ? 'Secret advancement' : `Unlock: ${entry.desc}`)}</i></span></button>`;
+  }).join('');
+  $('#vaultBody').innerHTML = `<div class="inv-layout"><div class="inv-panel"><p class="inv-title">Inventory</p><div class="inv-grid">${slotHTML}</div></div>
+    <aside class="inv-detail">${selected ? `<div class="inv-preview ${['epic', 'legendary', 'mythic'].includes(selected.rarity) ? 'glint' : ''}" style="--item:url('${ITEM_ROOT}${selected.item}');--rarity:${RARITY[selected.rarity].color}"><img src="${ITEM_ROOT}${selected.item}" alt=""></div>
+      <h3 style="color:${RARITY[selected.rarity].color}">${escapeHTML(selected.item.replace(/_00\.png|\.png/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</h3><p class="inv-rarity">${RARITY[selected.rarity].label} · from <em>${escapeHTML(selected.title)}</em></p>
+      <button class="${profile.equipped === selected.item ? 'quiet-action' : 'primary-action'}" type="button" data-equip="${selected.item}">${profile.equipped === selected.item ? 'Remove from profile' : 'Show on my profile'}</button>
+      <p class="side-note">Drag to spin. Shown items appear next to your name in the sidebar.</p>` : '<p class="side-note">Finish your first video to earn your first item.</p>'}</aside></div>`;
+  const preview = $('#vaultBody .inv-preview');
+  if (preview) {
+    let startX = 0;
+    let base = 0;
+    preview.addEventListener('pointerdown', event => { startX = event.clientX; base = Number(preview.dataset.spin || 0); preview.setPointerCapture(event.pointerId); preview.classList.add('dragging'); });
+    preview.addEventListener('pointermove', event => { if (!preview.classList.contains('dragging')) return; const spin = base + (event.clientX - startX) * 1.2; preview.dataset.spin = String(spin); preview.style.setProperty('--spin', `${spin}deg`); });
+    preview.addEventListener('pointerup', () => preview.classList.remove('dragging'));
+  }
+}
+
+/* ==========================================================================
+   Install as an app + new-upload notifications
+   ========================================================================== */
+let installPrompt = null;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; renderAppPanel(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('Installed! Open Unstable UX from your home screen or apps.'); renderAppPanel(); });
+async function installApp() {
+  if (installPrompt) { installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; renderAppPanel(); return; }
+  $('#installDialog').showModal();
+}
+function pushSupported() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+async function currentPushSubscription() {
+  if (!pushSupported()) return null;
+  const registration = await navigator.serviceWorker.ready;
+  return registration.pushManager.getSubscription();
+}
+function base64ToBytes(value) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+}
+async function enablePush() {
+  if (!pushSupported()) {
+    if (isIOS() && !isStandalone()) { toast('On iPad and iPhone, install the app to your Home Screen first, then turn alerts on from there.'); $('#installDialog').showModal(); }
+    else toast('This browser does not support notifications.');
+    return false;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') { toast('Notifications are blocked. You can allow them in your browser settings.'); return false; }
+  const keyResponse = await fetch('/api/push/key');
+  if (!keyResponse.ok) { toast('Notifications are not available on this site yet.'); return false; }
+  const {publicKey} = await keyResponse.json();
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) subscription = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: base64ToBytes(publicKey)});
+  const saved = await fetch('/api/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: subscription.endpoint})});
+  if (!saved.ok) { toast('Could not turn on alerts. Try again.'); return false; }
+  toast('Alerts on. You will get a notification when a new Unstable video is added.');
+  return true;
+}
+async function disablePush() {
+  const subscription = await currentPushSubscription();
+  if (subscription) {
+    await fetch('/api/push/subscribe', {method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: subscription.endpoint})}).catch(() => {});
+    await subscription.unsubscribe().catch(() => {});
+  }
+  toast('New-upload alerts off.');
+}
+async function renderAppPanel() {
+  const installed = isStandalone();
+  $('#installButton').hidden = installed || (!installPrompt && !isIOS());
+  $('#installButton').textContent = isIOS() ? 'Add to Home Screen' : 'Install the app';
+  let subscribed = false;
+  try { subscribed = Boolean(await currentPushSubscription()); } catch { /* not ready */ }
+  $('#pushToggle').checked = subscribed && Notification.permission === 'granted';
+  $('#appNote').textContent = installed
+    ? 'Running as an installed app.'
+    : isIOS() ? 'On iPad and iPhone, add the site to your Home Screen to get alerts.' : installPrompt ? 'Install it for a full-screen app with its own icon.' : 'Get a notification when a new video lands in the playlist.';
+}
+
+/* ==========================================================================
+   Admin panel (only for usernames in ADMIN_USERNAMES on the server)
+   ========================================================================== */
+let isAdmin = false;
+async function checkAdmin() {
+  try {
+    const response = await fetch('/api/admin/me', {cache: 'no-store'});
+    isAdmin = response.ok && (await response.json()).admin === true;
+  } catch { isAdmin = false; }
+  $('#adminTrigger').hidden = !isAdmin;
+}
+const adminDraft = {featured: null, announcement: null, hidden: []};
+async function openAdmin() {
+  if (!isAdmin) return;
+  Object.assign(adminDraft, JSON.parse(JSON.stringify(siteConfig)));
+  $('#adminBody').innerHTML = '<p class="side-note">Loading…</p>';
+  $('#adminDialog').showModal();
+  let stats = null;
+  try { const response = await fetch('/api/admin/stats', {cache: 'no-store'}); stats = response.ok ? await response.json() : null; } catch { /* offline */ }
+  renderAdmin(stats);
+}
+function videoOptions(selected = '') {
+  return `<option value="">Choose a video…</option>${[...allVideos].sort((a, b) => byDate(b) - byDate(a)).map(video => `<option value="${video.id}" ${video.id === selected ? 'selected' : ''}>${escapeHTML(`${video.creator} · ${video.title}`.slice(0, 90))}</option>`).join('')}`;
+}
+function renderAdmin(stats) {
+  const hidden = adminDraft.hidden.map(id => allVideos.find(video => video.id === id) || {id, title: id, creator: '?'});
+  const last = stats?.lastCheck;
+  $('#adminBody').innerHTML = `
+    ${stats ? `<div class="admin-stats"><div><strong>${stats.users}</strong><span>accounts</span></div><div><strong>${stats.subscribers}</strong><span>alert subscribers</span></div><div><strong>${stats.knownVideos}</strong><span>videos tracked</span></div><div><strong>${last ? timeAgo(last.at) : 'never'}</strong><span>last playlist check</span></div></div>` : ''}
+    ${stats && !stats.youtubeKey ? '<p class="account-error">The YouTube API key is missing, so automatic upload checks cannot run.</p>' : ''}
+    <section class="admin-block"><h3>Announcement banner</h3><p class="side-note">Shown at the top of the site for everyone until they dismiss it.</p>
+      <textarea id="adminAnnouncement" maxlength="240" rows="2" placeholder="e.g. New season starts Friday!">${escapeHTML(adminDraft.announcement?.text || '')}</textarea>
+      <div class="admin-row"><label class="side-select"><span>Style</span><select id="adminTone"><option value="info">Info</option><option value="hype">Hype</option><option value="warning">Warning</option></select></label><input id="adminLink" type="url" placeholder="Optional https:// link" value="${escapeHTML(adminDraft.announcement?.link || '')}" /></div></section>
+    <section class="admin-block"><h3>Featured video</h3><p class="side-note">A spotlight card near the top of the home page.</p>
+      <select id="adminFeatured">${videoOptions(adminDraft.featured?.videoId)}</select>
+      <input id="adminFeaturedNote" maxlength="160" placeholder="Optional note, e.g. 'Must-watch before the finale'" value="${escapeHTML(adminDraft.featured?.note || '')}" /></section>
+    <section class="admin-block"><h3>Hidden videos</h3><p class="side-note">Hidden videos disappear from the library for everyone and never trigger alerts.</p>
+      <div class="admin-row"><select id="adminHideSelect">${videoOptions()}</select><button class="quiet-action compact" type="button" id="adminHide">Hide</button></div>
+      <ul class="admin-hidden">${hidden.length ? hidden.map(video => `<li><span>${escapeHTML(`${video.creator} · ${video.title}`)}</span><button class="text-button" type="button" data-unhide="${video.id}">Unhide</button></li>`).join('') : '<li class="muted">No hidden videos.</li>'}</ul></section>
+    <section class="admin-block"><h3>Notifications</h3><p class="side-note">The site checks the playlist every 30 minutes and alerts subscribers about uploads from the last 7 days.${stats?.lastPush ? ` Last alert: “${escapeHTML(stats.lastPush.title)}” ${timeAgo(stats.lastPush.sentAt)}.` : ''}</p>
+      <div class="admin-row"><button class="quiet-action compact" type="button" id="adminTestPush">Send a test to this device</button><button class="quiet-action compact" type="button" id="adminCheckNow">Check playlist now</button></div><p class="side-note" id="adminPushNote"></p></section>
+    <div class="profile-actions"><button class="primary-action" type="button" id="adminSave">Save changes</button><span class="side-note" id="adminSaveNote"></span></div>`;
+  $('#adminTone').value = adminDraft.announcement?.tone || 'info';
+}
+function readAdminForm() {
+  const text = $('#adminAnnouncement').value.trim();
+  const previous = siteConfig.announcement;
+  adminDraft.announcement = text ? {text, tone: $('#adminTone').value, link: $('#adminLink').value.trim(), id: previous && previous.text === text ? previous.id : String(Date.now())} : null;
+  const featured = $('#adminFeatured').value;
+  adminDraft.featured = featured ? {videoId: featured, note: $('#adminFeaturedNote').value.trim()} : null;
+}
+async function saveAdmin() {
+  readAdminForm();
+  $('#adminSaveNote').textContent = 'Saving…';
+  const response = await fetch('/api/admin/site', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(adminDraft)}).catch(() => null);
+  if (!response || !response.ok) { $('#adminSaveNote').textContent = 'Could not save. Are you still signed in?'; return; }
+  siteConfig = await response.json();
+  safeWrite(SITE_KEY, siteConfig);
+  try { localStorage.removeItem('uux-announcement-dismissed'); } catch { /* ignore */ }
+  videos = visibleOnly(allVideos);
+  renderLibrary();
+  $('#adminSaveNote').textContent = 'Saved. Everyone sees it on their next visit.';
+}
+$('#adminDialog').addEventListener('click', async event => {
+  const target = event.target.closest('button');
+  if (!target) return;
+  if (target.id === 'adminSave') saveAdmin();
+  if (target.id === 'adminHide') { const id = $('#adminHideSelect').value; if (id && !adminDraft.hidden.includes(id)) { readAdminForm(); adminDraft.hidden.push(id); renderAdmin(null); } }
+  if (target.dataset.unhide) { readAdminForm(); adminDraft.hidden = adminDraft.hidden.filter(id => id !== target.dataset.unhide); renderAdmin(null); }
+  if (target.id === 'adminTestPush') {
+    const subscription = await currentPushSubscription().catch(() => null);
+    if (!subscription) { $('#adminPushNote').textContent = 'Turn on New-upload alerts in the sidebar first.'; return; }
+    const response = await fetch('/api/admin/test-push', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: subscription.endpoint})});
+    const data = await response.json().catch(() => ({}));
+    $('#adminPushNote').textContent = response.ok && data.ok ? 'Test sent. It should arrive in a few seconds.' : (data.error || `Push service answered ${data.status || response.status}.`);
+  }
+  if (target.id === 'adminCheckNow') {
+    $('#adminPushNote').textContent = 'Checking the playlist…';
+    const response = await fetch('/api/admin/check-now', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const data = await response.json().catch(() => ({}));
+    $('#adminPushNote').textContent = !response.ok ? (data.error || 'Check failed.') : data.seeded ? `First check done: ${data.seeded} videos recorded. Alerts start with the next new upload.` : data.skipped ? 'Skipped: the YouTube key is missing.' : `${data.added || 0} new video${data.added === 1 ? '' : 's'} found${data.notified ? `, alerts sent to ${data.sent} device${data.sent === 1 ? '' : 's'}` : ''}.`;
+  }
+});
+
+/* ---------- wiring for this round ---------- */
+$('#storylineToggle').addEventListener('change', event => setStoryline(event.target.checked));
+$('#autoplayToggle').addEventListener('change', event => { settings.autoplay = event.target.checked; saveSettings(); });
+$('#storylineButton').addEventListener('click', startStoryline);
+$('#calendarTrigger').addEventListener('click', () => openCalendar());
+$('#vaultTrigger').addEventListener('click', () => openVault());
+$('#adminTrigger').addEventListener('click', openAdmin);
+$('#installButton').addEventListener('click', installApp);
+$('#pushToggle').addEventListener('change', async event => {
+  const want = event.target.checked;
+  event.target.disabled = true;
+  try { const ok = want ? await enablePush() : (await disablePush(), true); if (!ok) event.target.checked = false; }
+  catch { toast('Could not change alerts. Try again.'); event.target.checked = !want; }
+  finally { event.target.disabled = false; renderAppPanel(); }
+});
+$('#calPrev').addEventListener('click', () => shiftMonth(-1));
+$('#calNext').addEventListener('click', () => shiftMonth(1));
+$('#calLatest').addEventListener('click', () => { $('#calendarDialog').close(); openCalendar(); });
+$('#calGrid').addEventListener('click', event => { const cell = event.target.closest('[data-cal-day]'); if (cell) { calendar.day = cell.dataset.calDay; renderCalendar(); } });
+$('#calDay').addEventListener('click', event => { const card = event.target.closest('[data-play]'); if (card) { $('#calendarDialog').close(); openPlayer(card.dataset.play); } });
+document.querySelectorAll('[data-vault-tab]').forEach(button => button.addEventListener('click', () => { vaultTab = button.dataset.vaultTab; renderVault(); }));
+$('#vaultBody').addEventListener('click', event => {
+  const slot = event.target.closest('[data-inv]');
+  if (slot && slot.classList.contains('have')) { vaultSelected = slot.dataset.inv; renderVault(); return; }
+  const equip = event.target.closest('[data-equip]');
+  if (equip) { profile.equipped = profile.equipped === equip.dataset.equip ? '' : equip.dataset.equip; saveProfile(); updateVaultCount(); renderVault(); }
+});
+$('#recap').addEventListener('click', event => {
+  if (event.target.closest('[data-recap="dismiss"]')) { try { sessionStorage.setItem(RECAP_KEY, '1'); } catch { /* ignore */ } renderRecap(); return; }
+  handleCardClick(event);
+});
+$('#featured').addEventListener('click', handleCardClick);
+$('#announcement').addEventListener('click', event => {
+  if (!event.target.closest('[data-announcement-close]')) return;
+  try { localStorage.setItem('uux-announcement-dismissed', String(siteConfig.announcement?.id || '')); } catch { /* ignore */ }
+  renderAnnouncement();
+});
+document.querySelectorAll('.calendar-dialog, .vault-dialog, .install-dialog, .admin-dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
+
 /* ---------- boot ---------- */
-videos = videos.filter(video => !video?.unavailable).map(enrich);
+allVideos = videos.filter(video => !video?.unavailable).map(enrich);
+videos = visibleOnly(allVideos);
+catalogComplete = allVideos.length > 0;
 const creatorFromURL = readURL();
 if (!creatorFromURL && profile.favoriteCreator) filters.creator = profile.favoriteCreator;
 $('#searchInput').value = filters.search;
@@ -2115,4 +2731,8 @@ tryOpenPendingVideo();
 renderAccount();
 if (syncMeta.username) pullProfile({force: true});
 else accountRequest('/me').then(result => { account.available = result.status !== 503 && result.status !== 404; if (result.ok && result.data.user) pullProfile({force: true}); else renderAccount(); }).catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').then(() => renderAppPanel()).catch(() => {});
+renderAppPanel();
+loadSiteConfig();
+checkAdmin();
 refreshPlaylist();

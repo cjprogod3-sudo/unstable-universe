@@ -1,4 +1,4 @@
-# Unstable Universe — fan video library
+# Unstable Universe Experience — unofficial fan video site
 
 An unofficial, fan-made video library for the supplied Unstable Universe playlist:
 
