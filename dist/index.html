@@ -2,53 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="A fan-made, local-first Unstable Universe viewing dashboard." />
-  <title>UNSTABLE / Universe</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A browser-local Unstable Universe playlist library." />
+  <title>Unstable Universe Library</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
-  <div class="noise"></div><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="theme-artifacts" id="themeArtifacts" aria-hidden="true"></div>
-  <header class="topbar">
-    <a class="brand" href="#top" aria-label="Unstable Universe home"><span class="brand-mark">U</span><span>UNSTABLE<span class="muted">/</span>UNIVERSE</span></a>
-    <nav aria-label="Main navigation"><a class="active" href="#explore">Explore</a><a href="#timeline">Timeline</a><a href="#watchlist">Watchlist <span class="watch-count">0</span></a></nav>
-    <div class="header-actions"><button class="profile-button" id="profileButton"><span>◉</span><span id="profileName">Guest profile</span></button><button class="icon-button menu-button" aria-label="Open navigation" aria-expanded="false">☰</button></div>
+<body data-theme="all">
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="artifact-field" id="artifactField" aria-hidden="true"></div>
+
+  <header class="glass-nav">
+    <a class="brand" href="#library" aria-label="Unstable Universe Library home">
+      <span class="brand-glyph">U</span><span>UNSTABLE <b>/</b> LIBRARY</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#library">Library</a>
+      <a href="#filters">Filters</a>
+      <button class="nav-profile" id="profileTrigger" type="button"><span class="online-dot"></span><span id="profileLabel">This device</span></button>
+    </nav>
   </header>
 
-  <main id="top">
-    <section class="hero" id="explore">
-      <div class="eyebrow"><span class="pulse"></span> FAN ARCHIVE · LOCAL-FIRST</div>
-      <h1>Chaos has a<br/><em>constellation.</em></h1>
-      <p class="hero-copy">A cinematic, community-made dashboard for tracking the stories orbiting Unstable Universe. Built for revisits, theories, and keeping your next episode lined up.</p>
-      <div class="hero-actions"><a class="primary-button" href="#timeline">Explore the timeline <span>↘</span></a><button class="text-button" id="refreshCatalog">↻ Refresh official playlist</button><button class="text-button" id="surprise">Surprise me <span>→</span></button></div>
-      <aside class="data-notice" id="catalogNotice"><strong>Fan concept.</strong> Cards begin as samples. “Refresh official playlist” loads verified metadata only after the Cloudflare YouTube API setup in the README is complete.</aside>
-      <div class="hero-metric"><span class="metric-value" id="viewedStat">00</span><span class="metric-label">episodes<br/>tracked</span><span class="metric-line"></span><span class="metric-label">your private<br/>watch history</span></div>
+  <main>
+    <section class="hero-shell" aria-labelledby="pageTitle">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span> OFFICIAL PLAYLIST LIBRARY</p>
+        <h1 id="pageTitle">One universe.<br /><em>Your way through it.</em></h1>
+        <p class="hero-text">Every available video from the linked official playlist, in playlist order. Build a private watch history, pick up where you paused, and rate the moments you want to remember.</p>
+        <div class="hero-actions">
+          <button class="primary-action" id="continueButton" type="button">Continue watching <span>●</span></button>
+          <button class="quiet-action" id="refreshButton" type="button">Refresh playlist</button>
+        </div>
+        <p class="source-note" id="catalogNotice" role="status">Connecting to the official playlist…</p>
+      </div>
+
+      <aside class="hero-console glass-card" aria-label="Library progress">
+        <div class="console-header"><span>YOUR SIGNAL</span><img id="activeItem" src="https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/nether_star.png" alt="" /></div>
+        <div class="progress-orb"><strong id="watchedPercent">0%</strong><span>watched</span></div>
+        <div class="console-numbers">
+          <div><strong id="watchedCount">0</strong><span>watched</span></div>
+          <div><strong id="inProgressCount">0</strong><span>in progress</span></div>
+          <div><strong id="catalogCount">0</strong><span>playlist videos</span></div>
+        </div>
+        <button id="profileShortcut" class="console-link" type="button">Open my device profile</button>
+      </aside>
     </section>
 
-    <section class="creator-section" aria-labelledby="creator-title">
-      <div class="section-heading"><div><p class="eyebrow">01 / CREATOR DESKS</p><h2 id="creator-title">Pick an orbit.</h2></div><p>Each desk has its own theme, tiny tool, and sample viewing queue.</p></div>
-      <div class="creator-grid" id="creatorGrid"></div>
+    <section class="filter-zone glass-card" id="filters" aria-labelledby="filterTitle">
+      <div class="filter-topline">
+        <div><p class="eyebrow">EXPLORE THE ARCHIVE</p><h2 id="filterTitle">Tune the signal.</h2></div>
+        <label class="search-box"><span>⌕</span><input id="searchInput" type="search" placeholder="Search title, creator, or description" autocomplete="off" /></label>
+      </div>
+      <div class="filter-groups" id="filterGroups" aria-label="Video filters"></div>
     </section>
 
-    <section class="timeline-section" id="timeline" aria-labelledby="timeline-title">
-      <div class="section-heading"><div><p class="eyebrow">02 / STORY SIGNAL</p><h2 id="timeline-title">The signal timeline.</h2></div><label class="search"><span aria-hidden="true">⌕</span><input id="episodeSearch" type="search" placeholder="Search sample episodes" aria-label="Search sample episodes" /></label></div>
-      <div class="filter-rack"><div class="filters" id="filters" aria-label="Filter videos"></div><p class="filter-status" id="filterStatus">UNIVERSE MODE</p></div>
-      <p class="result-note" id="resultNote"></p>
-      <div class="episode-list" id="episodeList"></div>
-    </section>
-
-    <section class="watchlist-section" id="watchlist">
-      <div><p class="eyebrow">03 / YOUR VAULT</p><h2>Keep the thread.</h2><p>Your watched episodes are saved only in this browser. Nothing syncs to creators or any outside service.</p></div>
-      <div class="vault-card"><div class="vault-icon">✦</div><p id="vaultText">No episodes marked yet.</p><button class="ghost-button" id="clearWatched">Clear local history</button></div>
+    <section class="library-section" id="library" aria-labelledby="libraryTitle">
+      <div class="library-heading">
+        <div><p class="eyebrow" id="activeMode">UNIVERSE MODE</p><h2 id="libraryTitle">The playlist archive.</h2></div>
+        <div class="library-tools">
+          <p id="resultsText" aria-live="polite">Loading videos…</p>
+          <label class="sort-select">Sort <select id="sortSelect" aria-label="Sort videos"><option value="playlist">Playlist order</option><option value="newest">Newest upload</option><option value="rating">My rating</option></select></label>
+        </div>
+      </div>
+      <div class="video-grid" id="videoGrid" aria-live="polite"></div>
+      <div class="empty-state" id="emptyState" hidden>
+        <img src="https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/compass_00.png" alt="" />
+        <h3>No videos match this view.</h3><p>Try clearing a filter or search phrase.</p>
+        <button class="quiet-action" id="clearFilters" type="button">Clear filters</button>
+      </div>
     </section>
   </main>
-  <footer><span>UNSTABLE / UNIVERSE</span><span>UNOFFICIAL FAN INTERFACE · SAMPLE DATA</span><a href="README.md">Deploy it free ↗</a></footer>
-  <dialog id="spoilerDialog"><button class="dialog-close" aria-label="Close">×</button><p class="eyebrow">SPOILER GUARD</p><h2>Choose your threshold.</h2><p>Hidden descriptions stay concealed until you choose to reveal them. Your preference stays in this browser.</p><div class="dialog-actions"><button class="primary-button" id="revealSpoilers">Reveal spoilers</button><button class="ghost-button" id="keepHidden">Keep hidden</button></div></dialog>
-  <dialog id="profileDialog" class="wide-dialog"><button class="dialog-close" aria-label="Close">×</button><p class="eyebrow">LOCAL PROFILE / BROWSER ONLY</p><h2>Your viewing vault.</h2><p>Set a name and optional verified video links. This is not a real account: details and progress stay only in this browser.</p><label class="form-label">Display name<input id="profileInput" maxlength="28" placeholder="Enter a display name" /></label><div class="embed-manager"><p class="tool-label">VERIFIED VIDEO EMBEDS</p><p class="small-note">Paste only official YouTube or Vimeo links for a sample episode. Nothing is pre-filled or claimed as official.</p><div id="embedInputs"></div></div><div class="dialog-actions"><button class="primary-button" id="saveProfile">Save local profile</button><button class="ghost-button" id="resetProfile">Reset local data</button></div></dialog>
-  <dialog id="videoDialog" class="video-dialog"><button class="dialog-close" aria-label="Close">×</button><div id="videoStage"></div></dialog>
+
+  <footer>
+    <span>UNOFFICIAL FAN LIBRARY</span>
+    <span>Profile, ratings, and progress stay in this browser only.</span>
+    <a href="https://www.youtube.com/playlist?list=PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg" target="_blank" rel="noreferrer">Open official playlist</a>
+  </footer>
+
+  <dialog class="player-dialog" id="playerDialog">
+    <div class="dialog-bar"><div><p class="eyebrow">NOW PLAYING</p><h2 id="playerTitle">Loading video…</h2></div><button class="close-button" data-close-dialog="playerDialog" aria-label="Close player" type="button">×</button></div>
+    <div class="player-frame" id="playerMount"></div>
+    <div class="player-footer">
+      <div><span id="playerProgressText">Progress is saved on this device.</span><div class="thin-progress"><i id="playerProgressBar"></i></div></div>
+      <div class="player-actions"><button class="quiet-action" id="playerWatched" type="button">Mark watched</button><button class="primary-action" id="nextButton" type="button">Watch next</button></div>
+    </div>
+  </dialog>
+
+  <dialog class="profile-dialog" id="profileDialog">
+    <button class="close-button" data-close-dialog="profileDialog" aria-label="Close profile" type="button">×</button>
+    <p class="eyebrow">DEVICE PROFILE</p><h2>Your private library.</h2>
+    <p class="dialog-copy">This is a browser-local profile, not a cloud account. Your progress, ratings, and favorites stay on this device unless you export them.</p>
+    <label class="field-label">Display name<input id="profileNameInput" maxlength="28" placeholder="Choose a display name" /></label>
+    <div class="profile-summary" id="profileSummary"></div>
+    <div class="profile-actions"><button class="primary-action" id="saveProfile" type="button">Save profile</button><button class="quiet-action" id="exportProfile" type="button">Export data</button><button class="danger-action" id="resetProfile" type="button">Reset this device</button></div>
+  </dialog>
+
+  <template id="loadingCard"><article class="video-card skeleton"><div></div><div></div><div></div></article></template>
   <script src="app.js"></script>
 </body>
 </html>
