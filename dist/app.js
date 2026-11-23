@@ -1,35 +1,365 @@
-const PLAYLIST_ID='PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg';
-const MC_ASSETS='https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/';
-const itemAssets={Wemmbu:'mace.png',Parrot:'spyglass.png',Spoke:'totem_of_undying.png',FlameFrags:'netherite_sword.png',All:'nether_star.png','Civilization Arc':'end_crystal.png','Law Arc':'book.png','Unstable Dimension War':'ender_eye.png',Other:'compass_00.png'};
-const sampleVideos=[
- {id:'wG9dbWNsems',title:'Official playlist entry',creator:'Unstable Universe',tag:'Official playlist',date:'Metadata refresh required',length:'—',description:'This is the supplied official playlist entry. Refresh to load verified API metadata.',poster:'linear-gradient(145deg,#321b58,#a970ff)',glyph:'⚒',sample:true},
- {id:'sample-parrot',title:'Signal in the Static',creator:'Parrot',tag:'MYSTERY',date:'Sample date · 2026-01-15',length:'24:08',description:'Sample card, replaced by verified results after a successful refresh.',poster:'linear-gradient(145deg,#0b3b31,#75ed79)',glyph:'🔭',sample:true},
- {id:'sample-spoke',title:'The Map Is Lying',creator:'Spoke',tag:'THEORY',date:'Sample date · 2026-01-22',length:'21:16',description:'Sample card, replaced by verified results after a successful refresh.',poster:'linear-gradient(135deg,#f55e92,#5de8ea,#8e68f7)',glyph:'🗿',sample:true},
- {id:'sample-flame',title:'Crimson Exit',creator:'FlameFrags',tag:'ACTION',date:'Sample date · 2026-02-26',length:'20:39',description:'Sample card, replaced by verified results after a successful refresh.',poster:'linear-gradient(145deg,#551122,#fd7354)',glyph:'🗡',sample:true}
-];
-const creatorThemes={Wemmbu:{accent:'#a970ff',accent2:'#6132a8',art:'⚒'},Parrot:{accent:'#75ed79',accent2:'#168c51',art:'🔭'},Spoke:{accent:'#ff74d5',accent2:'#4eeaff',art:'🗿'},FlameFrags:{accent:'#ff5964',accent2:'#c42336',art:'🗡'}};
-const themes={All:{label:'UNIVERSE MODE',icon:'✦',accent:'#d7ff58',accent2:'#ff5b9d',art:'✦'},Wemmbu:{label:'WEMMBU / MACE MODE',icon:'⚒',...creatorThemes.Wemmbu},Parrot:{label:'PARROT / SPYGLASS MODE',icon:'🔭',...creatorThemes.Parrot},Spoke:{label:'SPOKE / TOTEM MODE',icon:'🗿',...creatorThemes.Spoke},FlameFrags:{label:'FLAME / NETHERITE MODE',icon:'🗡',...creatorThemes.FlameFrags},'Civilization Arc':{label:'CIVILIZATION ARC / AUTO-TAGGED',icon:'♜',accent:'#c8a667',accent2:'#71552d',art:'♜'},'Law Arc':{label:'LAW ARC / AUTO-TAGGED',icon:'⚖',accent:'#79c3ff',accent2:'#435cff',art:'⚖'},'Unstable Dimension War':{label:'UNSTABLE DIMENSION WAR / AUTO-TAGGED',icon:'◇',accent:'#ff657f',accent2:'#8934b8',art:'◇'},Other:{label:'OTHER OFFICIAL VIDEOS',icon:'◌',accent:'#b5bdcf',accent2:'#586173',art:'◌'}};
-const storage={watched:'unstable-universe-watched',votes:'unstable-universe-votes',profile:'unstable-universe-profile',embeds:'unstable-universe-embeds',spoilers:'unstable-universe-spoilers',catalog:'unstable-universe-official-catalog'};
-let videos=JSON.parse(localStorage.getItem(storage.catalog)||'null')||sampleVideos,watched=new Set(JSON.parse(localStorage.getItem(storage.watched)||'[]')),votes=new Set(JSON.parse(localStorage.getItem(storage.votes)||'[]')),profile=JSON.parse(localStorage.getItem(storage.profile)||'{"name":""}'),filter='All',query='';
-const el=s=>document.querySelector(s);const creatorGrid=el('#creatorGrid');const glyphFor=n=>n==='Wemmbu'?'⚒':n==='Parrot'?'🔭':n==='Spoke'?'🗿':n==='FlameFrags'?'🗡':'✦';
-const el=s=>document.querySelector(s);const creatorGrid=el('#creatorGrid');const glyphFor=n=>n==='Wemmbu'?'⚒':n==='Parrot'?'🔭':n==='Spoke'?'🗿':n==='FlameFrags'?'🗡':'✦';const itemFor=n=>`${MC_ASSETS}${itemAssets[n]||itemAssets.All}`;
-function tagArc(title){const s=title.toLowerCase();if(s.includes('civilization'))return'Civilization Arc';if(s.includes('law'))return'Law Arc';if(s.includes('dimension')||s.includes('war'))return'Unstable Dimension War';return'Other'}
-function themeFor(name){return themes[name]||themes.All}function match(v){return filter==='All'||v.creator===filter||v.arc===filter}
-function applyTheme(name){const t=themeFor(name);document.body.dataset.theme=name.toLowerCase().replace('frags','');document.documentElement.style.setProperty('--accent',t.accent);document.documentElement.style.setProperty('--accent2',t.accent2);el('#filterStatus').textContent=t.label;el('#themeArtifacts').innerHTML=Array.from({length:9},(_,i)=>`<span class="artifact" style="--artifact:${t.accent};--x:${(i%2?1:-1)*(30+i*9)}px;--y:${20+i*9}px;--speed:${4+i%4}s;left:${(i*17+5)%94}%;top:${(i*29+7)%91}%">${t.art}</span>`).join('')}
-const desks=[['Wemmbu','⚒','MACE MOMENT','A purple-powered official-playlist filter.'],['Parrot','🔭','SPYGLASS SCAN','A green signal filter for Parrot videos.'],['Spoke','🗿','TOTEM PULSE','A rainbow theory filter for Spoke videos.'],['FlameFrags','🗡','BLADE HEAT','A red action filter for FlameFrags videos.']];
-function applyTheme(name){const t=themeFor(name);document.body.dataset.theme=name.toLowerCase().replace('frags','');document.documentElement.style.setProperty('--accent',t.accent);document.documentElement.style.setProperty('--accent2',t.accent2);el('#filterStatus').textContent=t.label;el('#themeArtifacts').innerHTML=Array.from({length:9},(_,i)=>`<img class="artifact" src="${itemFor(name)}" alt="" style="--artifact:${t.accent};--x:${(i%2?1:-1)*(30+i*9)}px;--y:${20+i*9}px;--speed:${4+i%4}s;left:${(i*17+5)%94}%;top:${(i*29+7)}%">`).join('')}
-const desks=[['Wemmbu',`<img class="creator-symbol" src="${itemFor('Wemmbu')}" alt="Wemmbu mace" />`,'MACE MOMENT','A purple-powered official-playlist filter.'],['Parrot',`<img class="creator-symbol" src="${itemFor('Parrot')}" alt="Parrot spyglass" />`,'SPYGLASS SCAN','A green signal filter for Parrot videos.'],['Spoke',`<img class="creator-symbol" src="${itemFor('Spoke')}" alt="Spoke totem" />`,'TOTEM PULSE','A rainbow theory filter for Spoke videos.'],['FlameFrags',`<img class="creator-symbol" src="${itemFor('FlameFrags')}" alt="FlameFrags netherite sword" />`,'BLADE HEAT','A red action filter for FlameFrags videos.']];
-creatorGrid.innerHTML=desks.map(([name,symbol,tool,copy],i)=>`<article class="creator-card" style="--accent:${themes[name].accent}" data-filter-card="${name}"><div class="creator-top"><span class="creator-index">0${i+1}</span><span class="creator-symbol">${symbol}</span></div><h3>${name}</h3><p>${copy}</p><div class="creator-tool"><div class="tool-label">${tool}</div><div class="tool-content">Click to enter this creator’s mode.</div></div></article>`).join('');creatorGrid.onclick=e=>{const c=e.target.closest('[data-filter-card]');if(c){filter=c.dataset.filterCard;render();el('#timeline').scrollIntoView({behavior:'smooth'})}};
-function renderFilters(){el('#filters').innerHTML=Object.entries(themes).map(([name,t])=>`<button class="filter ${filter===name?'active':''}" style="--filter:${t.accent}" data-filter="${name}"><i>${t.icon}</i>${name}</button>`).join('')}
-function renderFilters(){el('#filters').innerHTML=Object.entries(themes).map(([name,t])=>`<button class="filter ${filter===name?'active':''}" style="--filter:${t.accent}" data-filter="${name}"><img class="filter-item" src="${itemFor(name)}" alt="" />${name}</button>`).join('')}
-const esc=s=>String(s||'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-function renderVideos(){const found=videos.filter(v=>match(v)&&(`${v.title} ${v.creator} ${v.arc||''}`).toLowerCase().includes(query));el('#resultNote').textContent=`${found.length} ${videos.some(v=>v.official)?'OFFICIAL / VERIFIED':'SAMPLE'} VIDEO${found.length===1?'':'S'} · ${themeFor(filter).label}`;el('#episodeList').innerHTML=found.map(v=>`<article class="episode"><div class="episode-poster" style="--poster:${v.poster||(v.thumbnail?`url('${v.thumbnail}') center/cover`:`url(https://i.ytimg.com/vi/${v.id}/hqdefault.jpg) center/cover`)}"><span>${v.poster?v.glyph||glyphFor(v.creator):''}</span><button class="play-chip" data-play="${v.id}" aria-label="Watch ${esc(v.title)}">▶</button></div><div class="episode-content"><span class="ep-num">${esc(v.arc||v.tag||'OFFICIAL VIDEO')}</span><div class="ep-title">${esc(v.title)}</div><div class="ep-meta">BY ${esc(v.creator).toUpperCase()}<br>${esc(v.date).toUpperCase()}${v.ago?` · ${esc(v.ago).toUpperCase()}`:''} · ${esc(v.length)}${v.views?` · ${esc(v.views)} VIEWS`:''}</div><p class="ep-description">${esc(v.description||'No description supplied by the API.')}</p><div class="episode-actions"><button class="watch-button ${watched.has(v.id)?'done':''}" data-watch="${v.id}">${watched.has(v.id)?'✓ watched':'mark watched'}</button><button class="vote-button ${votes.has(v.id)?'active':''}" data-vote="${v.id}">♥ ${votes.has(v.id)?'voted':'vote'}</button><button class="watch-button" data-comments="${v.id}">comments</button><button class="watch-button" data-play="${v.id}">watch ↗</button></div></div></article>`).join('')||'<p class="result-note">No videos match this filter.</p>';updateVault()}
-function updateVault(){const n=watched.size;el('#viewedStat').textContent=String(n).padStart(2,'0');document.querySelectorAll('.watch-count').forEach(x=>x.textContent=n);el('#vaultText').textContent=n?`${n} video${n===1?'':'s'} in ${profile.name||'your'} local watch history.`:'No videos marked yet.';el('#profileName').textContent=profile.name||'Guest profile'}function render(){renderFilters();applyTheme(filter);renderVideos()}
-const friendlyError=e=>e?.message?.includes('API')?'Live refresh needs the YouTube API key configured as a Cloudflare Worker secret. See README.':`Refresh could not complete: ${e?.message||'network error'}`;
-async function refreshCatalog(){const b=el('#refreshCatalog');b.disabled=true;b.textContent='↻ Refreshing official playlists…';try{const r=await fetch('/api/catalog',{cache:'no-store'});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||`API returned ${r.status}`);const data=await r.json();videos=data.videos.map(v=>({...v,arc:tagArc(v.title),glyph:glyphFor(v.creator)}));localStorage.setItem(storage.catalog,JSON.stringify(videos));el('#catalogNotice').innerHTML=`<strong>Official metadata refreshed.</strong> ${videos.length} videos discovered across ${data.playlists.length} official playlist${data.playlists.length===1?'':'s'}, updated ${new Date(data.refreshedAt).toLocaleString()}. Arc labels are auto-tagged from titles; review them before treating them as official arc names.`;filter='All';render()}catch(e){el('#catalogNotice').innerHTML=`<strong>Live catalog not connected.</strong> ${esc(friendlyError(e))} The supplied official playlist is still available from the Watch button.`}finally{b.disabled=false;b.textContent='↻ Refresh official playlists'}}
-async function getCatalogJson(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||`API returned ${r.status}`);return r.json()}
-async function refreshCatalog(){const b=el('#refreshCatalog');b.disabled=true;try{b.textContent='↻ Finding official playlists…';const discovery=await getCatalogJson('/api/catalog?mode=discover'),sources=discovery.sources||[],unique=new Map();if(!sources.length)throw new Error('No matching official playlists were found.');for(let sourceIndex=0;sourceIndex<sources.length;sourceIndex++){const source=sources[sourceIndex];let pageToken='';do{b.textContent=`↻ Refreshing ${sourceIndex+1}/${sources.length}: ${source.title}`;const query=new URLSearchParams({playlistId:source.id});if(pageToken)query.set('pageToken',pageToken);const page=await getCatalogJson(`/api/catalog?${query}`);page.videos.forEach(v=>{if(!unique.has(v.id))unique.set(v.id,{...v,playlist:source.title})});pageToken=page.nextPageToken||''}while(pageToken)}videos=[...unique.values()].map(v=>({...v,arc:tagArc(v.title),glyph:glyphFor(v.creator)}));localStorage.setItem(storage.catalog,JSON.stringify(videos));el('#catalogNotice').innerHTML=`<strong>Official metadata refreshed.</strong> ${videos.length} videos loaded from ${sources.length} official playlist${sources.length===1?'':'s'}, updated ${new Date().toLocaleString()}. The refresh safely reads every page of each matching playlist; arc labels are auto-tagged from titles.`;filter='All';render()}catch(e){el('#catalogNotice').innerHTML=`<strong>Live catalog not connected.</strong> ${esc(friendlyError(e))} The supplied official playlist is still available from the Watch button.`}finally{b.disabled=false;b.textContent='↻ Refresh official playlists'}}
-function openVideo(id){const v=videos.find(x=>x.id===id);el('#videoStage').innerHTML=`<iframe class="embed-frame" title="${esc(v.title)}" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}?list=${PLAYLIST_ID}&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;el('#videoDialog').showModal()}
-async function openComments(id){const v=videos.find(x=>x.id===id);el('#videoStage').innerHTML='<div class="video-info"><p class="eyebrow">OFFICIAL COMMENTS</p><h2>Loading comments…</h2></div>';el('#videoDialog').showModal();try{const r=await fetch(`/api/comments?videoId=${encodeURIComponent(id)}`);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Comments unavailable');const {comments=[]}=await r.json();el('#videoStage').innerHTML=`<div class="video-info"><p class="eyebrow">OFFICIAL COMMENTS / ${esc(v.title)}</p><h2>Top discussion</h2>${comments.length?comments.map(c=>`<p><strong>${esc(c.author)}</strong><br>${esc(c.text)}<br><small>${esc(c.publishedAt)} · ${esc(c.likes)} likes</small></p>`).join(''):'<p>Comments are disabled or unavailable for this video.</p>'}</div>`}catch(e){el('#videoStage').innerHTML=`<div class="video-info"><p class="eyebrow">COMMENTS</p><h2>Not available yet</h2><p>${esc(friendlyError(e))}</p></div>`}}
-el('#filters').onclick=e=>{const b=e.target.closest('[data-filter]');if(b){filter=b.dataset.filter;render()}};el('#episodeSearch').oninput=e=>{query=e.target.value.toLowerCase();renderVideos()};el('#episodeList').onclick=e=>{const w=e.target.dataset.watch,v=e.target.dataset.vote;if(w){watched.has(w)?watched.delete(w):watched.add(w);localStorage.setItem(storage.watched,JSON.stringify([...watched]));renderVideos()}else if(v){votes.has(v)?votes.delete(v):votes.add(v);localStorage.setItem(storage.votes,JSON.stringify([...votes]));renderVideos()}else if(e.target.dataset.play)openVideo(e.target.dataset.play);else if(e.target.dataset.comments)openComments(e.target.dataset.comments)};el('#refreshCatalog').onclick=refreshCatalog;el('#surprise').onclick=()=>{filter=videos[Math.floor(Math.random()*videos.length)].creator;render();el('#timeline').scrollIntoView({behavior:'smooth'})};el('#clearWatched').onclick=()=>{watched.clear();localStorage.removeItem(storage.watched);renderVideos()};
-const pd=el('#profileDialog');el('#profileButton').onclick=()=>{el('#profileInput').value=profile.name||'';el('#embedInputs').innerHTML='<p class="small-note">Official YouTube embeds now open directly from the verified playlist catalog.</p>';pd.showModal()};el('#saveProfile').onclick=()=>{profile={name:el('#profileInput').value.trim()};localStorage.setItem(storage.profile,JSON.stringify(profile));pd.close();updateVault()};el('#resetProfile').onclick=()=>{if(confirm('Clear this browser’s profile, progress, votes, and refreshed catalog?')){Object.values(storage).forEach(k=>localStorage.removeItem(k));location.reload()}};document.querySelectorAll('.dialog-close').forEach(b=>b.onclick=()=>b.closest('dialog').close());el('.menu-button').onclick=e=>{const n=el('nav');n.classList.toggle('open');e.currentTarget.setAttribute('aria-expanded',n.classList.contains('open'))};render();if(videos.every(v=>v.sample))refreshCatalog();
+const PLAYLIST_ID = 'PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg';
+const ITEM_ROOT = 'https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/';
+const PROFILE_KEY = 'unstable-universe-library-profile-v1';
+const CATALOG_KEY = 'unstable-universe-library-catalog-v1';
+
+const icons = {
+  All: 'nether_star.png', Wemmbu: 'mace.png', Parrot: 'spyglass.png', Spoke: 'totem_of_undying.png', FlameFrags: 'netherite_sword.png', Other: 'compass_00.png',
+  'In progress': 'recovery_compass.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', Rated: 'amethyst_shard.png', Longform: 'clock_00.png',
+  Civilization: 'end_crystal.png', Law: 'book.png', Dimension: 'ender_eye.png', War: 'netherite_sword.png', Mafia: 'echo_shard.png', Prison: 'iron_bars.png', 'Bases & vaults': 'chest.png'
+};
+const themes = {
+  All: {key: 'all', accent: '#b17cff', rgb: '177,124,255'},
+  Wemmbu: {key: 'wemmbu', accent: '#be85ff', rgb: '190,133,255'},
+  Parrot: {key: 'parrot', accent: '#77f59c', rgb: '119,245,156'},
+  Spoke: {key: 'spoke', accent: '#ff85d3', rgb: '255,133,211'},
+  FlameFrags: {key: 'flamefrags', accent: '#ff6d78', rgb: '255,109,120'},
+  Civilization: {key: 'civilization', accent: '#e0bf6b', rgb: '224,191,107'},
+  War: {key: 'war', accent: '#ff9b62', rgb: '255,155,98'},
+  Mafia: {key: 'mafia', accent: '#c49cff', rgb: '196,156,255'}
+};
+
+const $ = selector => document.querySelector(selector);
+const escapeHTML = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+const item = name => `${ITEM_ROOT}${icons[name] || icons.All}`;
+const safeRead = (key, fallback) => { try { const parsed = JSON.parse(localStorage.getItem(key)); return parsed && typeof parsed === 'object' ? parsed : fallback; } catch { return fallback; } };
+const defaultProfile = () => ({name: '', progress: {}, ratings: {}, favorites: {}, lastVideoId: ''});
+const normalizeProfile = raw => ({...defaultProfile(), ...raw, progress: raw?.progress || {}, ratings: raw?.ratings || {}, favorites: raw?.favorites || {}});
+
+let profile = normalizeProfile(safeRead(PROFILE_KEY, defaultProfile()));
+let videos = Array.isArray(safeRead(CATALOG_KEY, [])) ? safeRead(CATALOG_KEY, []) : [];
+let filters = {creator: 'All', collection: 'All', tag: 'All', search: '', sort: 'playlist'};
+let loading = false;
+let activeVideoId = '';
+let youtubePlayer = null;
+let playerTimer = null;
+let youtubeLoader = null;
+
+function saveProfile() { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); }
+function saveCatalog() { localStorage.setItem(CATALOG_KEY, JSON.stringify(videos)); }
+function progressFor(id) { return profile.progress[id] || {seconds: 0, duration: 0, completed: false}; }
+function ratingFor(id) { return Math.max(0, Math.min(5, Number(profile.ratings[id] || 0))); }
+function statusFor(video) {
+  const progress = progressFor(video.id);
+  if (progress.completed) return 'Watched';
+  if (progress.seconds > 3) return 'In progress';
+  return 'Not started';
+}
+function percentFor(video) {
+  const progress = progressFor(video.id);
+  return progress.completed ? 100 : progress.duration > 0 ? Math.max(0, Math.min(100, Math.round(progress.seconds / progress.duration * 100))) : 0;
+}
+function formatSeconds(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const secs = value % 60;
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}` : `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+function tagsFor(video) {
+  const text = `${video.title || ''} ${video.description || ''}`.toLowerCase();
+  const tags = [];
+  if (text.includes('civilization')) tags.push('Civilization');
+  if (/\blaw\b|lawless/.test(text)) tags.push('Law');
+  if (text.includes('dimension') || text.includes('end dimension')) tags.push('Dimension');
+  if (/\bwar\b|battle|empire/.test(text)) tags.push('War');
+  if (text.includes('mafia')) tags.push('Mafia');
+  if (text.includes('prison')) tags.push('Prison');
+  if (text.includes('base') || text.includes('vault')) tags.push('Bases & vaults');
+  return tags;
+}
+function knownCreator(value) { return ['Wemmbu', 'Parrot', 'Spoke', 'FlameFrags'].includes(value) ? value : 'Other'; }
+function enrich(video, index) {
+  return {...video, position: Number(video.position || index + 1), creator: knownCreator(video.creator), tags: tagsFor(video)};
+}
+function iconForActiveTheme() { return filters.creator !== 'All' ? filters.creator : filters.tag !== 'All' ? filters.tag : 'All'; }
+function currentTheme() { return themes[iconForActiveTheme()] || themes.All; }
+function applyTheme() {
+  const theme = currentTheme();
+  document.body.dataset.theme = theme.key;
+  document.documentElement.style.setProperty('--accent', theme.accent);
+  document.documentElement.style.setProperty('--accent-rgb', theme.rgb);
+  $('#activeItem').src = item(iconForActiveTheme());
+  $('#activeMode').textContent = `${iconForActiveTheme().toUpperCase()} MODE`;
+  $('#artifactField').innerHTML = Array.from({length: 8}, (_, index) => {
+    const left = (index * 17 + 3) % 95;
+    const top = (index * 23 + 11) % 86;
+    return `<img class="artifact" src="${item(iconForActiveTheme())}" alt="" style="--artifact-rgb:${theme.rgb};--drift-time:${6 + index}s;--drift-x:${index % 2 ? 22 : -22}px;--drift-y:${15 + index * 5}px;left:${left}%;top:${top}%">`;
+  }).join('');
+}
+function allTags() { return [...new Set(videos.flatMap(video => video.tags))]; }
+function filterDefinitions() {
+  return [
+    {key: 'creator', label: 'CREATORS', values: ['All', 'Wemmbu', 'Parrot', 'Spoke', 'FlameFrags', 'Other']},
+    {key: 'collection', label: 'MY LIBRARY', values: ['All', 'In progress', 'Watched', 'Not started', 'Favorites', 'Rated', 'Longform']},
+    {key: 'tag', label: 'AUTO TAGS', values: ['All', ...allTags()]}
+  ];
+}
+function chipColor(value) {
+  const theme = themes[value] || themes.All;
+  return {accent: theme.accent, rgb: theme.rgb};
+}
+function renderFilters() {
+  $('#filterGroups').innerHTML = filterDefinitions().map(group => {
+    const chips = group.values.map(value => {
+      const color = chipColor(value);
+      const active = filters[group.key] === value;
+      return `<button class="chip ${active ? 'active' : ''}" type="button" data-filter-group="${group.key}" data-filter-value="${escapeHTML(value)}" style="--chip-color:${color.accent};--chip-rgb:${color.rgb}"><img src="${item(value)}" alt="">${escapeHTML(value)}</button>`;
+    }).join('');
+    return `<div class="filter-group"><span class="filter-group-label">${group.label}</span><div class="chip-scroller">${chips}</div></div>`;
+  }).join('');
+}
+function matches(video) {
+  if (filters.creator !== 'All' && video.creator !== filters.creator) return false;
+  const status = statusFor(video);
+  if (filters.collection === 'In progress' && status !== 'In progress') return false;
+  if (filters.collection === 'Watched' && status !== 'Watched') return false;
+  if (filters.collection === 'Not started' && status !== 'Not started') return false;
+  if (filters.collection === 'Favorites' && !profile.favorites[video.id]) return false;
+  if (filters.collection === 'Rated' && !ratingFor(video.id)) return false;
+  if (filters.collection === 'Longform' && !/^([1-9]\d*):/.test(video.length || '')) return false;
+  if (filters.tag !== 'All' && !video.tags.includes(filters.tag)) return false;
+  const needle = filters.search.trim().toLowerCase();
+  return !needle || `${video.title} ${video.creator} ${video.description} ${video.tags.join(' ')}`.toLowerCase().includes(needle);
+}
+function orderedVideos() {
+  const found = videos.filter(matches);
+  if (filters.sort === 'newest') return [...found].sort((a, b) => new Date(b.publishedAt || b.date) - new Date(a.publishedAt || a.date));
+  if (filters.sort === 'rating') return [...found].sort((a, b) => ratingFor(b.id) - ratingFor(a.id) || a.position - b.position);
+  return [...found].sort((a, b) => a.position - b.position);
+}
+function ratingMarkup(video) {
+  const rating = ratingFor(video.id);
+  return `<div class="rating-row"><span class="rating-caption">YOUR RATING ${rating ? `· ${rating}/5` : ''}</span><div class="shards" aria-label="Rate ${escapeHTML(video.title)}">${Array.from({length: 5}, (_, index) => `<button class="shard ${index < rating ? 'active' : ''}" type="button" data-rate="${index + 1}" data-id="${video.id}" aria-label="Rate ${index + 1} out of 5"><img src="${item('Rated')}" alt=""></button>`).join('')}</div></div>`;
+}
+function cardMarkup(video) {
+  const rating = ratingFor(video.id);
+  const status = statusFor(video);
+  const progress = percentFor(video);
+  const favorite = Boolean(profile.favorites[video.id]);
+  const tagHTML = video.tags.length ? video.tags.slice(0, 3).map(tag => `<span class="tag">${escapeHTML(tag)}</span>`).join('') : '<span class="tag">Playlist</span>';
+  const description = escapeHTML(video.description || 'No description was provided by the playlist.');
+  const thumbnail = escapeHTML(video.thumbnail || `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`);
+  return `<article class="video-card" style="--rating-glow:${rating / 5}">
+    <div class="card-art"><img src="${thumbnail}" alt="" loading="lazy"><span class="episode-order">#${String(video.position).padStart(2, '0')}</span><span class="duration-badge">${escapeHTML(video.length || '—')}</span><span class="video-status">${status}</span></div>
+    <div class="card-content"><div class="creator-line"><span>${escapeHTML(video.creator)}</span><span>${escapeHTML(video.views || '—')} views</span></div>
+      <h3 class="video-title">${escapeHTML(video.title)}</h3><p class="video-meta">${escapeHTML(video.date || 'Unknown date')} · ${escapeHTML(video.ago || '')}</p>
+      <p class="video-description" id="description-${video.id}">${description}</p>
+      <div class="tag-row">${tagHTML}</div>
+      <div class="progress-track" title="${progress}% watched"><i style="--progress:${progress}%"></i></div>
+      ${ratingMarkup(video)}
+      <div class="card-actions"><button class="card-action" type="button" data-play="${video.id}">Watch</button><button class="card-action ${favorite ? 'favorited' : ''}" type="button" data-favorite="${video.id}">${favorite ? 'Saved' : 'Save'}</button><button class="card-action" type="button" data-watched="${video.id}">${status === 'Watched' ? 'Unmark' : 'Mark watched'}</button><a class="card-action" href="https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}&list=${PLAYLIST_ID}" target="_blank" rel="noreferrer">YouTube</a></div>
+    </div></article>`;
+}
+function renderSkeletons() { $('#videoGrid').innerHTML = Array.from({length: 8}, () => $('#loadingCard').innerHTML).join(''); }
+function renderLibrary() {
+  applyTheme();
+  renderFilters();
+  const found = orderedVideos();
+  $('#catalogCount').textContent = String(videos.length);
+  $('#resultsText').textContent = videos.length ? `${found.length} of ${videos.length} videos` : 'Loading official playlist…';
+  $('#emptyState').hidden = Boolean(found.length || loading);
+  if (!videos.length && loading) { renderSkeletons(); return; }
+  $('#videoGrid').innerHTML = found.map(cardMarkup).join('');
+  updateProfileUI();
+}
+function updateProfileUI() {
+  const watched = videos.filter(video => statusFor(video) === 'Watched').length;
+  const inProgress = videos.filter(video => statusFor(video) === 'In progress').length;
+  const percent = videos.length ? Math.round(watched / videos.length * 100) : 0;
+  $('#watchedCount').textContent = String(watched);
+  $('#inProgressCount').textContent = String(inProgress);
+  $('#watchedPercent').textContent = `${percent}%`;
+  $('#profileLabel').textContent = profile.name || 'This device';
+  $('#profileSummary').innerHTML = `<div class="profile-stat"><strong>${watched}</strong><span>watched</span></div><div class="profile-stat"><strong>${inProgress}</strong><span>in progress</span></div><div class="profile-stat"><strong>${Object.keys(profile.ratings).filter(id => ratingFor(id)).length}</strong><span>ratings saved</span></div>`;
+}
+function setNotice(message, isError = false) { $('#catalogNotice').innerHTML = isError ? `<strong>Playlist unavailable.</strong> ${escapeHTML(message)}` : message; }
+async function requestJSON(path) {
+  const result = await fetch(path, {cache: 'no-store'});
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok) throw new Error(payload.error || `Request failed (${result.status})`);
+  return payload;
+}
+async function refreshPlaylist() {
+  if (loading) return;
+  loading = true;
+  $('#refreshButton').disabled = true;
+  $('#refreshButton').textContent = 'Refreshing…';
+  if (!videos.length) renderLibrary();
+  try {
+    const all = [];
+    let pageToken = '';
+    let pages = 0;
+    do {
+      setNotice(`<strong>Refreshing the official playlist.</strong> Loading page ${pages + 1}…`);
+      const params = new URLSearchParams({playlistId: PLAYLIST_ID});
+      if (pageToken) params.set('pageToken', pageToken);
+      const page = await requestJSON(`/api/catalog?${params}`);
+      all.push(...(page.videos || []));
+      pageToken = page.nextPageToken || '';
+      pages += 1;
+      videos = all.map(enrich);
+      renderLibrary();
+    } while (pageToken);
+    videos = all.map(enrich);
+    saveCatalog();
+    setNotice(`<strong>Playlist synced.</strong> ${videos.length} verified videos loaded in official playlist order. Refresh again whenever the playlist changes.`);
+  } catch (error) {
+    setNotice(error.message || 'Unable to retrieve the official playlist.', true);
+  } finally {
+    loading = false;
+    $('#refreshButton').disabled = false;
+    $('#refreshButton').textContent = 'Refresh playlist';
+    renderLibrary();
+  }
+}
+function setRating(id, value) {
+  profile.ratings[id] = ratingFor(id) === value ? 0 : value;
+  saveProfile();
+  renderLibrary();
+}
+function toggleFavorite(id) { profile.favorites[id] = !profile.favorites[id]; saveProfile(); renderLibrary(); }
+function toggleWatched(id) {
+  const old = progressFor(id);
+  profile.progress[id] = {...old, completed: !old.completed, seconds: old.completed ? 0 : Math.max(old.duration || 1, old.seconds || 1), updatedAt: Date.now()};
+  profile.lastVideoId = id;
+  saveProfile();
+  renderLibrary();
+}
+function getVideo(id) { return videos.find(video => video.id === id); }
+function teardownPlayer() {
+  recordPlayerProgress();
+  if (playerTimer) window.clearInterval(playerTimer);
+  playerTimer = null;
+  try { youtubePlayer?.destroy(); } catch { /* player may already be gone */ }
+  youtubePlayer = null;
+  activeVideoId = '';
+  $('#playerMount').innerHTML = '';
+}
+function recordPlayerProgress() {
+  if (!youtubePlayer || !activeVideoId) return;
+  try {
+    const seconds = Math.floor(youtubePlayer.getCurrentTime() || 0);
+    const duration = Math.floor(youtubePlayer.getDuration() || 0);
+    if (!duration || !seconds) return;
+    const old = progressFor(activeVideoId);
+    profile.progress[activeVideoId] = {seconds, duration, completed: seconds / duration >= .93, updatedAt: Date.now()};
+    profile.lastVideoId = activeVideoId;
+    saveProfile();
+    $('#playerProgressText').textContent = `${formatSeconds(seconds)} of ${formatSeconds(duration)} saved on this device.`;
+    $('#playerProgressBar').style.setProperty('--progress', `${Math.round(seconds / duration * 100)}%`);
+  } catch { /* YouTube player may not be ready yet */ }
+}
+function loadYouTubeAPI() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeLoader) return youtubeLoader;
+  youtubeLoader = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    const previous = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { previous?.(); resolve(window.YT); };
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.onerror = () => reject(new Error('The embedded YouTube player could not load.'));
+    document.head.append(script);
+  });
+  return youtubeLoader;
+}
+function fallbackPlayer(video) {
+  $('#playerMount').innerHTML = `<iframe title="${escapeHTML(video.title)}" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?rel=0&list=${PLAYLIST_ID}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+  $('#playerProgressText').textContent = 'Embedded player loaded. Resume tracking needs the YouTube player API.';
+}
+async function openPlayer(id) {
+  const video = getVideo(id);
+  if (!video) return;
+  if ($('#playerDialog').open) $('#playerDialog').close();
+  activeVideoId = id;
+  $('#playerTitle').textContent = video.title;
+  $('#playerMount').innerHTML = '<div class="player-loading">Loading embedded player…</div>';
+  $('#playerProgressBar').style.setProperty('--progress', `${percentFor(video)}%`);
+  $('#playerProgressText').textContent = `${percentFor(video)}% of this video is saved on this device.`;
+  $('#playerWatched').textContent = statusFor(video) === 'Watched' ? 'Unmark watched' : 'Mark watched';
+  $('#nextButton').disabled = !videos.find(next => next.position === video.position + 1);
+  $('#playerDialog').showModal();
+  try {
+    const YT = await loadYouTubeAPI();
+    if (activeVideoId !== id || !$('#playerDialog').open) return;
+    $('#playerMount').innerHTML = '<div id="youtubePlayer"></div>';
+    youtubePlayer = new YT.Player('youtubePlayer', {
+      videoId: id,
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: {autoplay: 1, rel: 0, playsinline: 1, origin: location.origin},
+      events: {
+        onReady: event => {
+          const saved = progressFor(id);
+          if (saved.seconds > 4 && (!saved.duration || saved.seconds < saved.duration - 8)) event.target.seekTo(saved.seconds, true);
+          event.target.playVideo();
+          playerTimer = window.setInterval(recordPlayerProgress, 4000);
+        },
+        onStateChange: event => {
+          if (event.data === YT.PlayerState.ENDED) {
+            const duration = Math.floor(event.target.getDuration() || 0);
+            profile.progress[id] = {seconds: duration, duration, completed: true, updatedAt: Date.now()};
+            profile.lastVideoId = id;
+            saveProfile();
+            $('#playerWatched').textContent = 'Unmark watched';
+            recordPlayerProgress();
+          }
+          if (event.data === YT.PlayerState.PAUSED) recordPlayerProgress();
+        }
+      }
+    });
+  } catch {
+    fallbackPlayer(video);
+  }
+}
+function openProfile() {
+  $('#profileNameInput').value = profile.name || '';
+  updateProfileUI();
+  $('#profileDialog').showModal();
+}
+function exportProfile() {
+  const payload = JSON.stringify({profile, exportedAt: new Date().toISOString(), playlistId: PLAYLIST_ID}, null, 2);
+  const url = URL.createObjectURL(new Blob([payload], {type: 'application/json'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'unstable-universe-device-profile.json';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+function continueWatching() {
+  const candidate = getVideo(profile.lastVideoId) || videos.find(video => statusFor(video) === 'In progress') || videos[0];
+  if (candidate) openPlayer(candidate.id);
+}
+function clearFilters() { filters = {...filters, creator: 'All', collection: 'All', tag: 'All', search: ''}; $('#searchInput').value = ''; renderLibrary(); }
+
+$('#filterGroups').addEventListener('click', event => {
+  const button = event.target.closest('[data-filter-group]');
+  if (!button) return;
+  filters[button.dataset.filterGroup] = button.dataset.filterValue;
+  renderLibrary();
+});
+$('#videoGrid').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.dataset.play) openPlayer(button.dataset.play);
+  if (button.dataset.rate) setRating(button.dataset.id, Number(button.dataset.rate));
+  if (button.dataset.favorite) toggleFavorite(button.dataset.favorite);
+  if (button.dataset.watched) toggleWatched(button.dataset.watched);
+});
+$('#searchInput').addEventListener('input', event => { filters.search = event.target.value; renderLibrary(); });
+$('#sortSelect').addEventListener('change', event => { filters.sort = event.target.value; renderLibrary(); });
+$('#refreshButton').addEventListener('click', refreshPlaylist);
+$('#continueButton').addEventListener('click', continueWatching);
+$('#profileTrigger').addEventListener('click', openProfile);
+$('#profileShortcut').addEventListener('click', openProfile);
+$('#clearFilters').addEventListener('click', clearFilters);
+$('#saveProfile').addEventListener('click', () => { profile.name = $('#profileNameInput').value.trim(); saveProfile(); updateProfileUI(); $('#profileDialog').close(); });
+$('#exportProfile').addEventListener('click', exportProfile);
+$('#resetProfile').addEventListener('click', () => { if (confirm('Reset your local profile, ratings, favorites, and saved watch progress on this device?')) { profile = defaultProfile(); localStorage.removeItem(PROFILE_KEY); updateProfileUI(); renderLibrary(); $('#profileDialog').close(); } });
+$('#playerWatched').addEventListener('click', () => { if (activeVideoId) { toggleWatched(activeVideoId); const video = getVideo(activeVideoId); $('#playerWatched').textContent = statusFor(video) === 'Watched' ? 'Unmark watched' : 'Mark watched'; } });
+$('#nextButton').addEventListener('click', () => { const current = getVideo(activeVideoId); const next = current && videos.find(video => video.position === current.position + 1); if (next) openPlayer(next.id); });
+document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.closeDialog}`).close()));
+$('#playerDialog').addEventListener('close', () => { teardownPlayer(); renderLibrary(); });
+
+videos = videos.map(enrich);
+renderLibrary();
+refreshPlaylist();
