@@ -1,34 +1,44 @@
-# Unstable Universe — fan dashboard
+# Unstable Universe — fan video library
 
-This is a **fan-made interface**. All episode titles, creator associations, tags, dates, descriptions, stats, and widgets are intentional sample data. It does not pull live information, represent creators, or sync watch status anywhere. Watch history and spoiler preference use only the visitor's browser `localStorage`.
+An unofficial, fan-made video library for the supplied Unstable Universe playlist:
 
-## Free Cloudflare Pages deployment
+`PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg`
 
-1. Create a free [Cloudflare account](https://dash.cloudflare.com/sign-up) and a GitHub repository containing this folder's files.
-2. In Cloudflare, open **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
-3. Select the repository. If this folder is inside a larger repository, set **Root directory** to `outputs/unstable-universe` (or move this folder to the repository root). For this buildless static site, leave **Build command** blank and set **Build output directory** to `dist`.
-4. Click **Save and Deploy**. Cloudflare will provide a free `*.pages.dev` address—no purchased domain is required.
+The site fetches the videos currently in that one playlist from the YouTube Data API, including their title, channel, upload date, duration, views, thumbnail, and description. The **Refresh playlist** button loads every API page in official playlist order, so newly added playlist entries appear after the next refresh.
 
-### Enable the official live catalog
+## What is real and what is local
 
-The Refresh button is intentionally server-backed so the YouTube key never reaches visitors. It uses the linked playlist ID `PLzdPgQvHT2bpN6XE_i_SnTErvBtKycHwg`, preserves its order, pulls video metadata, and requests top comments only when a visitor opens a video’s Comments panel.
+- Video metadata comes from the supplied YouTube playlist when the `YOUTUBE_API_KEY` Worker secret is configured.
+- Creator, personal-library, search, and auto-tag filters run in the visitor's browser.
+- Tags such as Civilization, Law, Dimension, War, Mafia, Prison, and Bases & vaults are **automatic keyword tags**, not claimed official arc names.
+- The device profile, ratings, favorites, watch status, and playback positions are saved only in that browser's `localStorage`. They do not make a real account, sign visitors in, or sync to another device.
+- Videos play in an embedded YouTube player. The app resumes a saved position when YouTube's player API is available.
 
-1. In Google Cloud, enable **YouTube Data API v3** and create an API key restricted to that API.
-2. In Cloudflare Pages, open the project’s **Settings → Environment variables**. Add a secret named `YOUTUBE_API_KEY` for Production (and Preview if desired).
-3. Redeploy. Cloudflare Pages automatically serves `functions/api/catalog.js` and `functions/api/comments.js` as `/api/catalog` and `/api/comments`.
+## Free Cloudflare Workers deployment
 
-The arc filters are deliberately labeled **auto-tagged**: they sort official results only when a video title contains terms such as “civilization,” “law,” “dimension,” or “war.” They are not claims that the creators officially named those arcs. Update the classifier in `app.js` once verified playlist/arc names are available.
+This repository is configured as a Cloudflare Worker with static assets, not a build-tool project.
 
-### Git-free alternative
+1. Create a free Cloudflare account and push these files to a GitHub repository.
+2. In Cloudflare, choose **Workers & Pages → Create application → Workers → Import a repository**.
+3. Select this repository and set the root directory to `/`.
+4. Leave **Build command** blank and use `npx wrangler deploy` as the deploy command.
+5. After the first deploy, open the Worker’s **Settings → Variables and Secrets** and add a **Secret** named `YOUTUBE_API_KEY` containing a Google Cloud YouTube Data API v3 key.
+6. Trigger another deploy. Cloudflare provides a free `*.workers.dev` address; no paid domain is required.
 
-Install Node.js, then run `npx wrangler pages deploy dist --project-name unstable-universe-fan --functions functions` from this folder. Follow the browser sign-in prompt. This also produces a free `pages.dev` address.
+Never commit the YouTube key to GitHub or put it in `app.js`.
+
+## Source layout
+
+- `dist/` — exact static files deployed to visitors.
+- `functions/api/catalog.js` — playlist-only YouTube metadata API.
+- `functions/api/comments.js` — optional top comments API.
+- `worker.js` — routes only `/api/*` to the APIs and all other requests to static assets.
+- `app.js`, `index.html`, and `styles.css` — editable source mirrors of the deployed `dist/` files. Copy changes into `dist/` before deploying.
 
 ## Local preview
 
-Open `index.html` directly in a browser, or serve the folder with any static-file server. No build step or dependency installation is required.
+Open `index.html` in a browser for the shell UI. A local static server is needed to test the API calls, and they will only work after a Worker deployment with the secret configured.
 
-## Accessibility and behavior
+## Accessibility
 
-- Keyboard-accessible buttons, filters, modal controls, labels, and responsive navigation.
-- Spoiler text begins blurred and requires an explicit reveal choice.
-- “Mark watched” stores an episode ID only in the current browser.
+The interface provides keyboard-focusable controls, labeled filter buttons, responsive layouts, reduced-motion support, and no emoji-only primary controls. Minecraft item images are decorative; text labels remain available to assistive technology.
