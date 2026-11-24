@@ -208,3 +208,9 @@ Keep the site premium rather than cluttered:
 - **Storage** (`functions/api/library.js`): table `wiki_pages(title, data, run, updated)`, index in config `library_v2`. A commit is refused unless ≥90% of the pages for that run were stored, so a failed import never replaces a good library. The cron no longer touches the library.
 - **Views:** Browse (type tiles, search over titles/aliases/summaries, category filter, "Main cast"), Timeline (eras = the History page's top-level tabs/headings), and a page reader at `#/library/p/<Title>` (hero, infobox with image switcher, tabs, TOC, "Mentioned on", related videos). Stored HTML is re-cleaned with a tag whitelist when shown (`safeHTML`).
 - **Portal:** a CSS-3D stronghold portal room with real block textures (stone bricks, End portal frames, lava pit), 12 eyes of ender placed one by one, the activation boom, and a dive into a canvas End-portal starfield. Repeat visits play a short version. Click/Esc skips; Minimal effects or reduced motion skips it.
+
+## Round 12: Library fit + smarter page types (Claude, Nov 2026)
+
+- Card and header art is pinned to its frame (`position:absolute; inset:0; object-fit:contain`), so tall character renders are never cropped. "Main cast" wraps into a grid instead of scrolling off the screen.
+- Page types also read the wiki's first sentence (`summaryType`: the phrase right after "is/was/are/were", e.g. "is a major metropolis" → place, "is a group" → group). It outweighs categories, because the real wiki files groups and places under Characters too.
+- `LIB_PARSER` (now 3) is stored in the index; when it's older than the code, the admin's next Library visit re-imports automatically.

@@ -1737,3 +1737,22 @@ html.fake-full-lock, html.fake-full-lock body { overflow: hidden; }
 .wk-prose figure:not(.wk-figure):not(.wk-gallery figure) { max-width: 320px; }
 .lib-view .lib-attrib { display: block; }
 @media (min-width: 700px) { .wk-prose .wk-figure { float: right; clear: right; max-width: 38%; margin: 4px 0 14px 20px; } .wk-prose .wk-figure img { max-height: 280px; } .wk-h { clear: both; } }
+
+/* ---------- Round 12: nothing in the Library runs off screen ---------- */
+.lib-view { overflow-x: clip; }
+.lib-feature-row { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); overflow: visible; padding: 0; scroll-snap-type: none; }
+.lib-grid2, .lib-feature-row { min-width: 0; }
+.lib-card2 { min-width: 0; }
+/* whole figure always visible: fit inside the frame, anchored to the floor */
+.lc-art.has-img img, .lib-card2.t-character .lc-art.has-img img { object-fit: contain; object-position: center bottom; padding: 10px 10px 4px; }
+.lib-card2.t-character .lc-art { aspect-ratio: 1 / 1; }
+.lib-card2:hover .lc-art img { transform: scale(1.03); transform-origin: center bottom; }
+.wk-hero-art img { object-position: center bottom; }
+@media (max-width: 640px) {
+  .lib-feature-row { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-columns: auto; gap: 10px; }
+}
+/* the art box has no fixed height, so pin the picture to it instead of letting it grow */
+.lc-art.has-img img { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; }
+.wk-hero-art { position: relative; overflow: hidden; }
+.wk-hero-art.img img { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; object-fit: contain; }
+.ib-gallery img, .wk-gallery img { object-fit: contain; }

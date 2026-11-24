@@ -17,6 +17,8 @@ const WIKI_API = `${WIKI_ORIGIN}/api.php`;
 const HISTORY_TITLE = 'Unstable Universe/History';
 const BLOCK_ROOT = ITEM_ROOT.replace('/item/', '/block/');
 const LIBRARY_STALE_MS = 24 * 60 * 60 * 1000;
+// Bump when the import gets smarter: the admin's next visit re-imports automatically.
+const LIB_PARSER = 3;
 
 const LIB_TYPES = {
   character: {label: 'Characters', one: 'Character', icon: 'name_tag.png'},
@@ -509,8 +511,40 @@ const FIELD_TYPES = [
   ['event', /^(date|dates|participants?|combatants?|result|outcome|winners?|losers?|casualties|deaths|cause|duration|episode)$/i, 2],
   ['group', /^(leaders?|members?|founders?|founded|headquarters|base|disbanded|formed|ranks?)$/i, 2]
 ];
-function classifyPage(title, categories, infobox) {
+// The wiki's own first sentence is the best clue: "X is a major metropolis", "X is a group…".
+const SUMMARY_NOUNS = {
+  character: 'player|character|youtuber|content creator|streamer|member|antagonist|protagonist|villain|hero|person|man|woman|boy|girl|leader|king|queen|ruler|warrior|fighter|builder|creator',
+  group: 'group|team|faction|alliance|organi[sz]ation|gang|mafia|clan|duo|trio|crew|army|nation|empire|kingdom|family|squad|order|council|guild|cult|coalition|partnership|society',
+  location: 'city|metropolis|town|village|base|location|place|area|structure|building|island|castle|fortress|prison|vault|region|landmark|capital|settlement|dimension|biome|tower|arena|bunker|house|home|hideout|lair|world|map',
+  event: 'event|war|battle|fight|conflict|heist|raid|tournament|trial|election|attack|siege|incident|ceremony|conference|massacre|invasion|escape|betrayal|duel|competition|game|festival|meeting',
+  item: 'weapon|item|tool|armou?r|artifact|artefact|relic|machine|cannon|device|potion|enchantment|block|plane|vehicle|sword|bow|crossbow|trident|spear|mace|totem|book|horn|banner|pattern|elytra|contraption|invention|key|gem',
+  lore: 'season|series|arc|chapter|storyline|timeline'
+};
+function summaryType(summary) {
+  // Only the phrase right after the first "is/was/are/were" counts: "is a major metropolis",
+  // "is one of the main antagonists", "are melee weapons", but not "is known for … a Totem".
+  const text = String(summary || '').toLowerCase().slice(0, 300);
+  const verb = text.match(/\b(is|was|are|were)\s+/);
+  if (!verb) return null;
+  let phrase = text.slice(verb.index + verb[0].length).replace(/^(one|some|many|several|each|any|among) (of )?(the )?/, '');
+  const words = [];
+  for (const word of phrase.split(/[\s,;.()]+/).filter(Boolean)) {
+    if (/^(for|with|by|in|on|at|from|that|which|who|whose|and|or|to|known|used|made|also|not|often|best|famous|said|considered|believed|seen|mostly|commonly|usually)$/.test(word) && words.length) break;
+    words.push(word);
+    if (words.length >= 7) break;
+  }
+  const head = words.join(' ');
+  let best = null;
+  for (const [type, nouns] of Object.entries(SUMMARY_NOUNS)) {
+    const match = head.match(new RegExp(`\\b(${nouns})(e?s)?\\b`));
+    if (match && (!best || match.index < best.index)) best = {type, index: match.index};
+  }
+  return best ? best.type : null;
+}
+function classifyPage(title, categories, infobox, summary = '') {
   const score = {character: 0, item: 0, location: 0, event: 0, group: 0, lore: 0};
+  const told = summaryType(summary);
+  if (told) score[told] += 9;
   for (const category of categories) {
     if (/^(affiliated|appears in|mentioned in|requires|pages? with|stubs?|candidates|hidden|images?|videos?)\b/i.test(category)) continue;
     const name = category.replace(/_/g, ' ');
@@ -619,7 +653,7 @@ async function importWiki({auto = false} = {}) {
             if (data.parse) {
               const categories = (data.parse.categories || []).filter(category => !category.hidden).map(category => String(category.category || category['*'] || '').replace(/_/g, ' '));
               const converted = convertWikiPage(data.parse.text, title, resolveLink);
-              records.push({t: title, type: classifyPage(title, categories, converted.infobox), cats: categories, rev: data.parse.revid, ...converted});
+              records.push({t: title, type: classifyPage(title, categories, converted.infobox, converted.summary), cats: categories, rev: data.parse.revid, ...converted});
             }
           } catch (error) {
             if (importRun?.cancelled) throw error;
@@ -668,7 +702,7 @@ async function importWiki({auto = false} = {}) {
       for (const page of pages) for (const category of page.cats) catCounts.set(category, (catCounts.get(category) || 0) + 1);
       const history = pages.find(page => page.t.toLowerCase() === HISTORY_TITLE.toLowerCase())?.t || pages.find(page => /\/history$/i.test(page.t))?.t || '';
       const index = {
-        fetchedAt: new Date().toISOString(), source: {wiki: WIKI_ORIGIN, name: site.query?.general?.sitename || 'Unstable Universe Wiki'}, history,
+        parser: LIB_PARSER, fetchedAt: new Date().toISOString(), source: {wiki: WIKI_ORIGIN, name: site.query?.general?.sitename || 'Unstable Universe Wiki'}, history,
         counts: typeCounts, categories: [...catCounts].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({name, count})),
         pages: pages.map(page => ({t: page.t, type: page.type, s: page.s.slice(0, 240), img: page.img ? wikiImage(page.img, 320) : '', cats: page.cats.slice(0, 12), al: page.al, n: page.back.length}))
       };
@@ -702,7 +736,7 @@ function libraryAdminCheck() {
   if (button) button.hidden = !isAdmin;
   if (!isAdmin || importRun || !libraryData) return;
   const age = libraryData.empty ? Infinity : Date.now() - new Date(libraryData.fetchedAt || 0).getTime();
-  if (age > LIBRARY_STALE_MS) importWiki({auto: true});
+  if (age > LIBRARY_STALE_MS || (libraryData.parser || 0) < LIB_PARSER) importWiki({auto: true});
 }
 
 /* ==========================================================================
@@ -809,7 +843,7 @@ function renderBrowse() {
   if (libState.cat) list = list.filter(page => (page.cats || []).includes(libState.cat));
   if (!words.length) list.sort(libState.sort === 'az' ? (a, b) => a.t.localeCompare(b.t) : (a, b) => (b.n || 0) - (a.n || 0) || a.t.localeCompare(b.t));
   const filtered = libState.type !== 'all' || libState.cat || words.length;
-  const featured = !filtered ? [...data.pages].filter(page => page.type === 'character').sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8) : [];
+  const featured = !filtered ? [...data.pages].filter(page => page.type === 'character').sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 10) : [];
   const categories = (data.categories || []).filter(category => libState.type === 'all' || data.pages.some(page => page.type === libState.type && page.cats?.includes(category.name)));
   const shown = list.slice(0, libState.shown);
   body.innerHTML = `
