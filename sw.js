@@ -2,8 +2,8 @@
    App files are network-first (so deploys show up right away) with an offline
    fallback; images are cached; push messages carry no payload, so the worker
    asks the site what's new and shows that. */
-const VERSION = 'uux-v3';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/badge-96.png', '/icons/favicon-32.png'];
+const VERSION = 'uux-v4';
+const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/library.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/badge-96.png', '/icons/favicon-32.png'];
 const IMAGE_CACHE = `${VERSION}-images`;
 const IMAGE_LIMIT = 400;
 
@@ -55,7 +55,7 @@ self.addEventListener('fetch', event => {
     event.respondWith(networkFirst(request));
     return;
   }
-  if (request.destination === 'image' && /(^|\.)(mcasset\.cloud|ytimg\.com)$/.test(url.hostname)) event.respondWith(imageCache(request));
+  if (request.destination === 'image' && /(^|\.)(mcasset\.cloud|ytimg\.com|nocookie\.net)$/.test(url.hostname)) event.respondWith(imageCache(request));
 });
 
 self.addEventListener('push', event => {

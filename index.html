@@ -151,16 +151,7 @@
   </main>
 
   <section class="view lib-view" id="libraryView" aria-labelledby="libTitle" hidden>
-    <header class="lib-hero lg">
-      <div class="lib-hero-copy"><p class="eyebrow">THE UNSTABLE LIBRARY</p><h1 id="libTitle">Every event, item, and legend.</h1><p class="lib-stats" id="libStats">Opening the archive…</p></div>
-      <label class="side-search lib-search"><span aria-hidden="true">⌕</span><input id="libSearch" type="search" placeholder="Search events, items, characters…" autocomplete="off" aria-label="Search the library" /></label>
-      <div class="lib-types" id="libTypes" role="group" aria-label="Filter by type"></div>
-      <button class="quiet-action compact" id="libRefresh" type="button" hidden>Update from wiki</button>
-    </header>
-    <div class="lib-layout">
-      <nav class="lib-toc lg" id="libToc" aria-label="Library contents"></nav>
-      <div class="lib-main" id="libMain" aria-live="polite"></div>
-    </div>
+    <div id="libRoot"></div>
     <footer class="lib-attrib" id="libAttrib"></footer>
   </section>
 
@@ -365,14 +356,10 @@
 
   <div class="advancements" id="advancements" aria-live="polite"></div>
 
-  <dialog class="lib-page-dialog" id="libPage" aria-labelledby="libPageTitle"></dialog>
-
   <div class="portal-layer" id="portalLayer" aria-hidden="true" hidden>
-    <div class="portal-scene" id="portalScene">
-      <div class="portal-ring" id="portalRing"></div>
-      <div class="portal-surface"><i></i><i></i><i></i></div>
-    </div>
-    <div class="portal-flash"></div>
+    <div class="pt-cam"><div class="pt-tilt"><div class="pt-world" id="ptWorld"></div></div></div>
+    <canvas class="pt-void" id="ptVoid"></canvas>
+    <div class="pt-flash"></div>
     <p class="portal-hint">Click or press Esc to skip</p>
   </div>
 
@@ -383,5 +370,6 @@
 
   <template id="loadingCard"><article class="video-card skeleton"><div></div><div></div><div></div></article></template>
   <script src="app.js"></script>
+  <script src="library.js"></script>
 </body>
 </html>
