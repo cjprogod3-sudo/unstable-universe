@@ -12,7 +12,8 @@ const timeAgo = iso => {
   const days = Math.max(1, Math.floor((Date.now() - new Date(iso)) / 86400000));
   return days < 30 ? `${days} days ago` : days < 365 ? `${Math.floor(days / 30)} months ago` : `${Math.floor(days / 365)} years ago`;
 };
-const creator = channel => /wemmbu/i.test(channel) ? 'Wemmbu' : /parrot/i.test(channel) ? 'Parrot' : /spoke/i.test(channel) ? 'Spoke' : /flamefrags/i.test(channel) ? 'FlameFrags' : /f0_?olish/i.test(channel) ? 'F0_olish' : channel;
+const creator = channel => /wemmbu/i.test(channel) ? 'Wemmbu' : /parrot/i.test(channel) ? 'Parrot' : /spoke/i.test(channel) ? 'Spoke' : /flamefrags/i.test(channel) ? 'FlameFrags' : channel;
+const REMOVED_CHANNEL = /f0_?olish/i;
 const durationSeconds = value => {
   const match = String(value || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   return Number(match?.[1] || 0) * 3600 + Number(match?.[2] || 0) * 60 + Number(match?.[3] || 0);
@@ -59,7 +60,8 @@ export async function handleCatalog(request, env) {
     const ids = entries.map(item => item.contentDetails.videoId);
     const details = ids.length ? await youtube('videos', {part: 'snippet,contentDetails,statistics', id: ids.join(',')}, env.YOUTUBE_API_KEY) : {items: []};
     const byId = new Map((details.items || []).map(item => [item.id, item]));
-    const videos = entries.map((entry, index) => {
+    // F0_olish's videos are left out of the site on purpose.
+    const videos = entries.filter(entry => !REMOVED_CHANNEL.test(byId.get(entry.contentDetails.videoId)?.snippet?.channelTitle || entry.snippet?.videoOwnerChannelTitle || '')).map((entry, index) => {
       const video = byId.get(entry.contentDetails.videoId);
       const snippet = video?.snippet || entry.snippet;
       return {
