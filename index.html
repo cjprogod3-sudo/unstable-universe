@@ -24,7 +24,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body data-theme="all" data-fx="balanced">
+<body data-theme="all" data-fx="balanced" data-view="home">
   <a class="skip-link" href="#library">Skip to the video library</a>
   <div class="ambient ambient-one"></div>
   <div class="ambient ambient-two"></div>
@@ -87,6 +87,7 @@
   <div class="app-shell">
   <header class="topbar lg">
     <button class="top-icon" id="sidebarOpen" type="button" aria-label="Open filters and settings" aria-controls="sidebar" aria-expanded="false"><span class="burger" aria-hidden="true"><i></i><i></i><i></i></span><span class="top-label">Filters</span></button>
+    <nav class="top-tabs" aria-label="Sections"><a href="#/" data-view="home" aria-current="page">Videos</a><a href="#/library" data-view="library">Library</a><a href="#/scenes" data-view="scenes">Scene Finder</a></nav>
     <p class="top-mode"><img id="topItem" src="https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures/item/nether_star.png" alt="" /><span id="topMode">All creators</span></p>
     <span class="story-pill" id="storyPill" hidden>Storyline</span>
     <div class="top-tools">
@@ -98,7 +99,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="homeView">
     <div class="announcement" id="announcement" role="status" hidden></div>
     <section class="recap lg" id="recap" aria-labelledby="recapTitle" hidden></section>
     <section class="new-banner" id="newBanner" aria-label="New upload" hidden></section>
@@ -149,6 +150,31 @@
     </section>
   </main>
 
+  <section class="view lib-view" id="libraryView" aria-labelledby="libTitle" hidden>
+    <header class="lib-hero lg">
+      <div class="lib-hero-copy"><p class="eyebrow">THE UNSTABLE LIBRARY</p><h1 id="libTitle">Every event, item, and legend.</h1><p class="lib-stats" id="libStats">Opening the archive…</p></div>
+      <label class="side-search lib-search"><span aria-hidden="true">⌕</span><input id="libSearch" type="search" placeholder="Search events, items, characters…" autocomplete="off" aria-label="Search the library" /></label>
+      <div class="lib-types" id="libTypes" role="group" aria-label="Filter by type"></div>
+      <button class="quiet-action compact" id="libRefresh" type="button" hidden>Update from wiki</button>
+    </header>
+    <div class="lib-layout">
+      <nav class="lib-toc lg" id="libToc" aria-label="Library contents"></nav>
+      <div class="lib-main" id="libMain" aria-live="polite"></div>
+    </div>
+    <footer class="lib-attrib" id="libAttrib"></footer>
+  </section>
+
+  <section class="view scene-view" id="sceneView" aria-labelledby="sceneTitle" hidden>
+    <header class="scene-hero lg">
+      <p class="eyebrow">SCENE FINDER</p><h1 id="sceneTitle">Find any moment.</h1>
+      <p class="scene-sub">Search chapters, timestamps the community shared in the comments, and your own bookmarks, across every video. Pick a result to jump straight to that second.</p>
+      <label class="side-search scene-search"><span aria-hidden="true">⌕</span><input id="sceneSearch" type="search" placeholder="Try “mace”, “betrayal”, “vault”…" autocomplete="off" aria-label="Search moments" /></label>
+      <div class="scene-filters"><div class="lib-types" id="sceneSources" role="group" aria-label="Moment source"></div><div class="lib-types" id="sceneCreators" role="group" aria-label="Creator"></div></div>
+      <p class="side-note" id="sceneStatus"></p>
+    </header>
+    <div class="scene-results" id="sceneResults" aria-live="polite"></div>
+  </section>
+
   <footer>
     <span>UNSTABLE UNIVERSE EXPERIENCE · UNOFFICIAL FAN SITE</span>
     <span id="footerPrivacy">Profile, ratings, and progress stay in this browser only.</span>
@@ -165,43 +191,98 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <dialog class="player-dialog" id="playerDialog" aria-labelledby="playerTitle">
-    <div class="dialog-bar">
-      <div class="dialog-heading"><p class="eyebrow" id="playerEyebrow">NOW PLAYING</p><h2 id="playerTitle">Loading video…</h2></div>
+    <header class="pl-head">
+      <span class="pl-badge"><img id="playerBadgeIcon" alt="" /></span>
+      <div class="dialog-heading"><h2 id="playerTitle">Loading video…</h2><p class="pl-meta" id="playerEyebrow"></p></div>
       <div class="dialog-tools">
-        <button class="tool-button" id="theaterButton" type="button" aria-pressed="false" title="Theater mode (T)">Theater</button>
-        <button class="tool-button" id="miniButton" type="button" title="Keep playing while you browse (I)">Mini player</button>
+        <button class="tool-button" id="multiButton" type="button" aria-pressed="false" title="Watch two perspectives side by side (V)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="13" y="5" width="8" height="14" rx="2"/></svg><span>Multi-View</span></button>
+        <button class="tool-button" id="theaterButton" type="button" aria-pressed="false" title="Theater mode (T)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/></svg><span>Theater</span></button>
+        <button class="tool-button" id="miniButton" type="button" title="Keep playing while you browse (I)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" class="fill"/></svg><span>Mini player</span></button>
         <button class="close-button" id="playerClose" aria-label="Close player" type="button">×</button>
       </div>
-    </div>
+    </header>
     <div class="player-layout">
       <div class="player-main">
-        <div class="player-stage"><div class="player-frame" id="playerMount"></div><div class="autoplay-card" id="autoplayCard" hidden></div></div>
-        <p class="resume-note" id="resumeNote" hidden></p>
-        <div class="player-footer">
-          <div class="player-progress"><span id="playerProgressText">Progress is saved on this device.</span><div class="thin-progress"><i id="playerProgressBar"></i></div></div>
-          <div class="player-actions">
-            <button class="quiet-action" id="playerFavorite" type="button">Favorite</button>
-            <button class="quiet-action" id="playerLater" type="button">Watch later</button>
-            <button class="quiet-action" id="playerWatched" type="button">Mark watched</button>
-            <button class="quiet-action" id="playerShare" type="button">Copy link</button>
-            <button class="primary-action" id="nextButton" type="button">Watch next</button>
+        <div class="pl-stages" id="plStages">
+          <div class="vstage" id="vstage">
+            <div class="player-frame" id="playerMount"></div>
+            <div class="v-hit" id="vHit" aria-hidden="true"></div>
+            <div class="v-flash" id="vFlash" aria-hidden="true"></div>
+            <div class="v-chapter-pill" id="vChapterPill" aria-hidden="true"></div>
+            <div class="vcontrols" id="vControls">
+              <div class="v-scrub" id="vScrub" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+                <div class="v-track"><i class="v-buffer" id="vBuffer"></i><i class="v-played" id="vPlayed"></i><span class="v-markers" id="vMarkers"></span><i class="v-knob" id="vKnob"></i></div>
+                <span class="v-tip" id="vTip"></span>
+              </div>
+              <div class="v-row">
+                <button class="v-btn" id="vPlay" type="button" aria-label="Play (K)"><svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/></svg></button>
+                <button class="v-btn" id="vNext" type="button" aria-label="Next video (N)"><svg viewBox="0 0 24 24"><path d="M5 5v14l10-7z"/><rect x="16" y="5" width="3" height="14" rx="1"/></svg></button>
+                <button class="v-btn small" id="vBack" type="button" aria-label="Back 10 seconds (J)"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16.5" text-anchor="middle">10</text></svg></button>
+                <button class="v-btn small" id="vFwd" type="button" aria-label="Forward 10 seconds (L)"><svg viewBox="0 0 24 24"><path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16.5" text-anchor="middle">10</text></svg></button>
+                <div class="v-vol"><button class="v-btn" id="vMute" type="button" aria-label="Mute (M)"><svg class="i-vol" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" class="stroke"/></svg><svg class="i-muted" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9l5 6M21 9l-5 6" class="stroke"/></svg></button><input type="range" id="vVolume" min="0" max="100" step="1" aria-label="Volume" /></div>
+                <span class="v-time" id="vTime">0:00 / 0:00</span>
+                <span class="v-chapter" id="vChapter"></span>
+                <span class="v-spacer"></span>
+                <button class="v-btn" id="vBookmark" type="button" aria-label="Bookmark this moment (B)"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+                <button class="v-btn v-text" id="vCC" type="button" aria-pressed="false" aria-label="Captions (C)">CC</button>
+                <div class="v-menu-wrap"><button class="v-btn" id="vSettings" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Playback settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.4z"/><circle cx="12" cy="12" r="3" class="hole"/></svg></button><div class="v-menu lg" id="vMenu" hidden></div></div>
+                <button class="v-btn" id="vMini" type="button" aria-label="Mini player (I)"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" class="stroke"/><rect x="12" y="12" width="7" height="5" rx="1"/></svg></button>
+                <button class="v-btn" id="vTheater" type="button" aria-label="Theater mode (T)"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2" class="stroke"/></svg></button>
+                <button class="v-btn" id="vFull" type="button" aria-label="Full screen (F)"><svg class="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" class="stroke"/></svg><svg class="i-exit" viewBox="0 0 24 24"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" class="stroke"/></svg></button>
+              </div>
+            </div>
+            <div class="autoplay-card" id="autoplayCard" hidden></div>
+          </div>
+          <div class="vstage second" id="vstage2" hidden>
+            <div class="player-frame" id="playerMount2"></div>
+            <div class="v2-bar lg"><select id="multiSelect" aria-label="Second perspective"></select><button class="v-btn small" id="multiSync" type="button" aria-pressed="true" title="Play, pause and seek together">Sync</button><button class="v-btn small" id="multiAudio" type="button" title="Swap which video you hear">Audio</button><button class="v-btn small" id="multiClose" type="button" aria-label="Close second view">×</button></div>
           </div>
         </div>
-        <section class="player-panel" aria-labelledby="bookmarkTitle">
-          <div class="panel-head"><h3 id="bookmarkTitle">Your bookmarks</h3><span class="panel-note">Saved on this device</span></div>
+        <p class="resume-note" id="resumeNote" hidden></p>
+        <div class="pl-tabs" role="tablist" aria-label="Video details">
+          <button role="tab" type="button" data-ptab="perspectives" aria-selected="true">Perspectives</button>
+          <button role="tab" type="button" data-ptab="moments" aria-selected="false">Moments</button>
+          <button role="tab" type="button" data-ptab="timeline" aria-selected="false">Timeline</button>
+          <button role="tab" type="button" data-ptab="context" aria-selected="false">Context</button>
+          <button role="tab" type="button" data-ptab="notes" aria-selected="false">Notes</button>
+          <button role="tab" type="button" data-ptab="comments" aria-selected="false">Comments</button>
+        </div>
+        <section class="pl-panel lg" data-ppanel="perspectives" id="perspectivesPanel"></section>
+        <section class="pl-panel lg" data-ppanel="moments" hidden>
           <form class="bookmark-form" id="bookmarkForm"><input id="bookmarkLabel" maxlength="60" placeholder="Name this moment (optional)" aria-label="Bookmark label" /><button class="quiet-action" type="submit" id="bookmarkAdd">Bookmark this moment</button></form>
-          <ol class="bookmark-list" id="bookmarkList"></ol>
+          <h3 class="pl-sub">Your bookmarks</h3><ol class="bookmark-list" id="bookmarkList"></ol>
+          <h3 class="pl-sub">From the community</h3><p class="side-note">Timestamps viewers shared in the top YouTube comments.</p><ol class="moment-list" id="communityMoments"></ol>
         </section>
-        <section class="player-panel" id="chapterPanel" aria-labelledby="chapterTitle" hidden>
-          <div class="panel-head"><h3 id="chapterTitle">Chapters</h3><span class="panel-note">From the YouTube description</span></div>
-          <ol class="chapter-list" id="chapterList"></ol>
+        <section class="pl-panel lg" data-ppanel="timeline" id="timelinePanel" hidden></section>
+        <section class="pl-panel lg" data-ppanel="context" id="contextPanel" hidden></section>
+        <section class="pl-panel lg" data-ppanel="notes" hidden>
+          <div class="notes-head"><h3 class="pl-sub">Private notes</h3><button class="quiet-action compact" type="button" id="notesStamp">Insert current time</button></div>
+          <textarea id="notesInput" maxlength="4000" rows="7" placeholder="Theories, clues, things to rewatch… Saved automatically (and synced if you're signed in)."></textarea>
+          <p class="side-note" id="notesStatus"></p>
         </section>
-        <section class="player-panel" aria-labelledby="commentTitle">
-          <div class="panel-head"><h3 id="commentTitle">Top YouTube comments</h3><span class="panel-note">May contain spoilers</span></div>
-          <div id="commentMount"><button class="quiet-action" id="loadComments" type="button">Show comments</button></div>
-        </section>
+        <section class="pl-panel lg" data-ppanel="comments" hidden><div id="commentMount"><button class="quiet-action" id="loadComments" type="button">Show comments</button></div></section>
       </div>
-      <aside class="player-side" id="playerSide" aria-label="What to watch next"></aside>
+      <aside class="player-rail">
+        <div class="rail-card lg episode-card">
+          <div class="ep-top"><img class="ep-thumb" id="railThumb" alt="" /><div><p class="ep-kicker" id="railKicker"></p><p class="ep-sub" id="railSub"></p></div></div>
+          <h3 class="ep-title" id="railTitle"></h3>
+          <p class="ep-desc" id="railDesc"></p>
+          <div class="ep-progress"><span id="playerProgressText">Progress is saved on this device.</span><div class="thin-progress"><i id="playerProgressBar"></i></div></div>
+          <div class="ep-actions">
+            <button class="quiet-action compact" id="playerFavorite" type="button">Favorite</button>
+            <button class="quiet-action compact" id="playerLater" type="button">Watch later</button>
+            <button class="quiet-action compact" id="playerWatched" type="button">Mark watched</button>
+            <button class="quiet-action compact" id="playerShare" type="button">Copy link</button>
+          </div>
+          <div class="ep-rating" id="railRating"></div>
+        </div>
+        <div class="rail-card lg" id="chapterPanel">
+          <div class="rail-head"><h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" class="stroke"/></svg>Chapters</h3><span class="side-note" id="chapterSource"></span></div>
+          <ol class="chapter-list" id="chapterList"></ol>
+        </div>
+        <div class="rail-card lg"><div id="playerSide"></div><button class="primary-action wide" id="nextButton" type="button">Watch next</button></div>
+        <div class="rail-card lg" id="railLibrary" hidden></div>
+      </aside>
     </div>
   </dialog>
 
@@ -231,7 +312,12 @@
       <div><dt><kbd>M</kbd></dt><dd>Mute sound effects</dd></div>
       <div><dt><kbd>Esc</kbd></dt><dd>Skip transition / close</dd></div>
       <div><dt><kbd>[</kbd></dt><dd>Collapse or expand the sidebar</dd></div>
-      <div><dt><kbd>N</kbd> <kbd>F</kbd> <kbd>L</kbd> <kbd>B</kbd> <kbd>T</kbd> <kbd>I</kbd></dt><dd>In the player: next, favorite, watch later, bookmark, theater, mini player</dd></div>
+      <div><dt><kbd>K</kbd> / <kbd>Space</kbd></dt><dd>Player: play / pause</dd></div>
+      <div><dt><kbd>J</kbd> <kbd>L</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>Player: back / forward 10s and 5s</dd></div>
+      <div><dt><kbd>↑</kbd> <kbd>↓</kbd> <kbd>M</kbd></dt><dd>Player: volume and mute</dd></div>
+      <div><dt><kbd>F</kbd> <kbd>T</kbd> <kbd>I</kbd> <kbd>V</kbd></dt><dd>Player: full screen, theater, mini player, multi-view</dd></div>
+      <div><dt><kbd>N</kbd> <kbd>B</kbd> <kbd>C</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>Player: next, bookmark, captions, slower / faster</dd></div>
+      <div><dt><kbd>S</kbd> <kbd>W</kbd> <kbd>0</kbd>–<kbd>9</kbd></dt><dd>Player: favorite, watch later, jump to 0–90%</dd></div>
     </dl>
   </dialog>
 
@@ -270,6 +356,17 @@
   </dialog>
 
   <div class="advancements" id="advancements" aria-live="polite"></div>
+
+  <dialog class="lib-page-dialog" id="libPage" aria-labelledby="libPageTitle"></dialog>
+
+  <div class="portal-layer" id="portalLayer" aria-hidden="true" hidden>
+    <div class="portal-scene" id="portalScene">
+      <div class="portal-ring" id="portalRing"></div>
+      <div class="portal-surface"><i></i><i></i><i></i></div>
+    </div>
+    <div class="portal-flash"></div>
+    <p class="portal-hint">Click or press Esc to skip</p>
+  </div>
 
   <dialog class="palette-dialog" id="paletteDialog" aria-label="Command palette">
     <div class="palette-search"><span aria-hidden="true">⌕</span><input id="paletteInput" placeholder="Type a command, creator, or video title…" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="paletteList" aria-autocomplete="list" /><kbd>Esc</kbd></div>

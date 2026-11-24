@@ -48,11 +48,14 @@ function cleanSite(input) {
 }
 
 /* ---------- VAPID ---------- */
+let vapidCache = null;
 async function vapidKeys(db) {
+  if (vapidCache) return vapidCache;
   const stored = await getConfig(db, 'vapid');
   if (stored) {
     const privateKey = await crypto.subtle.importKey('jwk', stored.privateJwk, {name: 'ECDSA', namedCurve: 'P-256'}, false, ['sign']);
-    return {privateKey, publicKey: stored.publicKey};
+    vapidCache = {privateKey, publicKey: stored.publicKey};
+    return vapidCache;
   }
   const pair = await crypto.subtle.generateKey({name: 'ECDSA', namedCurve: 'P-256'}, true, ['sign', 'verify']);
   const publicKey = b64url(await crypto.subtle.exportKey('raw', pair.publicKey));
@@ -67,7 +70,7 @@ async function vapidHeader(db, endpoint, subject) {
   const signature = await crypto.subtle.sign({name: 'ECDSA', hash: 'SHA-256'}, privateKey, new TextEncoder().encode(`${header}.${claims}`));
   return `vapid t=${header}.${claims}.${b64url(signature)}, k=${publicKey}`;
 }
-async function pushTo(db, endpoint, subject) {
+async function pushTo(db, endpoint, subject, _key) {
   const response = await fetch(endpoint, {method: 'POST', headers: {Authorization: await vapidHeader(db, endpoint, subject), TTL: '86400', Urgency: 'normal', 'Content-Length': '0'}});
   return response.status;
 }
@@ -78,15 +81,20 @@ export async function sendPushToAll(env, payload) {
   const origin = (await getConfig(db, 'site_origin')) || 'https://example.com';
   const {results} = await db.prepare('SELECT endpoint_hash, endpoint FROM push_subs').all();
   let sent = 0;
-  let removed = 0;
+  const gone = [];
+  const {privateKey} = await vapidKeys(db);
   for (const sub of results || []) {
     try {
-      const status = await pushTo(db, sub.endpoint, origin);
-      if (status === 404 || status === 410) { await db.prepare('DELETE FROM push_subs WHERE endpoint_hash = ?').bind(sub.endpoint_hash).run(); removed += 1; }
-      else if (status >= 200 && status < 300) { sent += 1; await db.prepare('UPDATE push_subs SET last_ok = ? WHERE endpoint_hash = ?').bind(Date.now(), sub.endpoint_hash).run(); }
+      const status = await pushTo(db, sub.endpoint, origin, privateKey);
+      if (status === 404 || status === 410) gone.push(sub.endpoint_hash);
+      else if (status >= 200 && status < 300) sent += 1;
     } catch { /* one bad endpoint never stops the rest */ }
   }
-  return {sent, removed, total: (results || []).length};
+  for (let index = 0; index < gone.length; index += 90) {
+    const chunk = gone.slice(index, index + 90);
+    await db.prepare(`DELETE FROM push_subs WHERE endpoint_hash IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).run();
+  }
+  return {sent, removed: gone.length, total: (results || []).length};
 }
 
 /* ---------- new-upload check (cron + admin button) ---------- */
@@ -105,25 +113,26 @@ export async function checkForNewUploads(env) {
     all.push(...(page.videos || []).filter(video => !video.unavailable));
     pageToken = page.nextPageToken || '';
   } while (pageToken);
-  const known = new Set(((await db.prepare('SELECT id FROM known_videos').all()).results || []).map(row => row.id));
+  // Known IDs live in ONE config row: the free plan allows only 50 D1 queries per invocation.
+  let knownList = await getConfig(db, 'known_ids', null);
+  if (!Array.isArray(knownList)) knownList = ((await db.prepare('SELECT id FROM known_videos').all()).results || []).map(row => row.id);
+  const known = new Set(knownList);
   const firstRun = known.size === 0;
   const site = cleanSite(await getConfig(db, 'site', DEFAULT_SITE));
   const fresh = all.filter(video => !known.has(video.id));
   const now = Date.now();
-  if (fresh.length) {
-    await db.batch(fresh.map(video => db.prepare('INSERT OR IGNORE INTO known_videos (id, title, creator, published_at, first_seen) VALUES (?, ?, ?, ?, ?)').bind(video.id, video.title, video.creator, video.publishedAt, now)));
-  }
+  if (fresh.length || !knownList.length) await setConfig(db, 'known_ids', [...known, ...fresh.map(video => video.id)]);
   await setConfig(db, 'last_check', {at: now, total: all.length, added: fresh.length});
-  if (firstRun) return {seeded: all.length};
+  if (firstRun) return {seeded: all.length, videos: all};
   const notify = fresh.filter(video => !site.hidden.includes(video.id) && now - new Date(video.publishedAt).getTime() <= NOTIFY_WITHIN_DAYS * 86400000);
-  if (!notify.length) return {added: fresh.length, notified: 0};
+  if (!notify.length) return {added: fresh.length, notified: 0, videos: all};
   notify.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
   const lead = notify[0];
   const payload = notify.length === 1
     ? {title: `New ${lead.creator} video!`, body: lead.title, url: `/?v=${lead.id}`, image: lead.thumbnail, tag: `upload-${lead.id}`}
     : {title: `${notify.length} new Unstable videos!`, body: notify.slice(0, 3).map(video => `${video.creator}: ${video.title}`).join('\n'), url: '/?list=New+uploads', image: lead.thumbnail, tag: 'uploads'};
   const result = await sendPushToAll(env, payload);
-  return {added: fresh.length, notified: notify.length, ...result};
+  return {added: fresh.length, notified: notify.length, ...result, videos: all};
 }
 
 /* ---------- HTTP ---------- */
@@ -194,7 +203,8 @@ export async function handleSite(request, env, ctx) {
         return json({ok: status >= 200 && status < 300, status});
       }
       if (path === '/api/admin/check-now' && method === 'POST') {
-        return json(await checkForNewUploads(env));
+        const {videos: _videos, ...summary} = await checkForNewUploads(env);
+        return json(summary);
       }
     }
     return json({error: 'Not found.'}, 404);

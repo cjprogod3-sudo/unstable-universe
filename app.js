@@ -64,7 +64,7 @@ const safeWrite = (key, value) => { try { localStorage.setItem(key, JSON.stringi
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-const defaultProfile = () => ({name: '', progress: {}, ratings: {}, favorites: {}, watchLater: {}, bookmarks: {}, favoriteCreator: '', lastVideoId: '', achievements: {}, days: {}, counters: {}, equipped: ''});
+const defaultProfile = () => ({name: '', progress: {}, ratings: {}, favorites: {}, watchLater: {}, bookmarks: {}, favoriteCreator: '', lastVideoId: '', achievements: {}, days: {}, counters: {}, equipped: '', notes: {}});
 function normalizeProfile(raw) {
   const source = isObject(raw) ? raw : {};
   const bookmarks = {};
@@ -88,10 +88,11 @@ function normalizeProfile(raw) {
     achievements: isObject(source.achievements) ? Object.fromEntries(Object.entries(source.achievements).filter(([, at]) => Number(at) > 0)) : {},
     days: isObject(source.days) ? Object.fromEntries(Object.entries(source.days).filter(([day]) => /^\d{4}-\d{2}-\d{2}$/.test(day)).slice(-400)) : {},
     counters: isObject(source.counters) ? Object.fromEntries(Object.entries(source.counters).map(([key, value]) => [key, Number(value) || 0])) : {},
-    equipped: typeof source.equipped === 'string' ? source.equipped.slice(0, 40) : ''
+    equipped: typeof source.equipped === 'string' ? source.equipped.slice(0, 40) : '',
+    notes: isObject(source.notes) ? Object.fromEntries(Object.entries(source.notes).filter(([, text]) => typeof text === 'string' && text.trim()).map(([id, text]) => [id, text.slice(0, 4000)]).slice(0, 500)) : {}
   };
 }
-const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false, sidebar: 'open', storyline: false, autoplay: true});
+const defaultSettings = () => ({preset: 'balanced', transitions: true, sound: true, volume: 0.5, theater: false, sidebar: 'open', storyline: false, autoplay: true, videoVolume: 80, videoMuted: false, captions: false, speed: 1});
 function normalizeSettings(raw) {
   const source = isObject(raw) ? raw : {};
   return {
@@ -102,7 +103,11 @@ function normalizeSettings(raw) {
     theater: Boolean(source.theater),
     sidebar: source.sidebar === 'rail' ? 'rail' : 'open',
     storyline: Boolean(source.storyline),
-    autoplay: source.autoplay !== false
+    autoplay: source.autoplay !== false,
+    videoVolume: clamp(Number.isFinite(Number(source.videoVolume)) ? Number(source.videoVolume) : 80, 0, 100),
+    videoMuted: Boolean(source.videoMuted),
+    captions: Boolean(source.captions),
+    speed: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(Number(source.speed)) ? Number(source.speed) : 1
   };
 }
 
@@ -1247,6 +1252,8 @@ async function refreshPlaylist() {
     $('#refreshButton').textContent = 'Refresh playlist';
     renderLibrary();
     tryOpenPendingVideo();
+    if (currentView === 'scenes') renderScenes();
+    if (currentView === 'library' && libraryData) renderLibraryView();
   }
 }
 let pendingAction = new URLSearchParams(location.search).get('action') || '';
@@ -1274,6 +1281,7 @@ function setRating(id, value) {
   profile.ratings[id] = ratingFor(id) === value ? 0 : value;
   saveProfile();
   renderLibrary();
+  refreshPlayerButtons();
 }
 function toggleFavorite(id) {
   profile.favorites[id] = !profile.favorites[id];
@@ -1328,62 +1336,432 @@ function clearFilters() {
 }
 
 /* ==========================================================================
-   Player
+   Player: custom controls over the official YouTube embed (controls=0),
+   chapter/bookmark/moment markers, multi-view, tabs, and the info rail.
    ========================================================================== */
 const playerDialog = $('#playerDialog');
+let playerOptions = {};
+let controlsTimer = null;
+let idleTimer = null;
+let scrubbing = false;
+let currentDuration = 0;
+let secondPlayer = null;
+let multiSync = true;
+let multiOffset = 0;
+let detailsCache = new Map();
+let momentsPromise = null;
+let momentsData = null;
+let activePanel = 'perspectives';
+
 function storyOrder() { return [...videos].sort((a, b) => byDate(a) - byDate(b) || a.position - b.position); }
 function nextInStory(video) { const list = storyOrder(); const index = list.findIndex(candidate => candidate.id === video.id); return index >= 0 ? list[index + 1] : undefined; }
 function nextUp(video) { return settings.storyline ? nextInStory(video) : nextInPlaylist(video); }
 function nextInPlaylist(video) { return videos.filter(candidate => candidate.position > video.position).sort((a, b) => a.position - b.position)[0]; }
 function nextFromCreator(video) { return videos.filter(candidate => candidate.creator === video.creator && candidate.position > video.position).sort((a, b) => a.position - b.position)[0]; }
-function sameTimePerspectives(video) {
+function sameTimePerspectives(video, limit = 4) {
   const time = byDate(video);
   if (!time) return [];
   return videos.filter(candidate => candidate.creator !== video.creator && Math.abs(byDate(candidate) - time) <= 3 * 86400000)
-    .sort((a, b) => Math.abs(byDate(a) - time) - Math.abs(byDate(b) - time)).slice(0, 4);
+    .sort((a, b) => Math.abs(byDate(a) - time) - Math.abs(byDate(b) - time)).slice(0, limit);
 }
+const thumbOf = (video, size = 'mqdefault') => escapeHTML(size === 'mqdefault' || !video.thumbnail ? `https://i.ytimg.com/vi/${video.id}/${size}.jpg` : video.thumbnail);
 function sideCard(video, caption) {
   const theme = themes[video.creator] || themes.Other;
   const status = statusFor(video);
-  return `<button class="side-card" type="button" data-play="${video.id}" style="--card-rgb:${theme.rgb}"><span class="side-thumb"><img src="${escapeHTML(video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`)}" alt="" loading="lazy"><span class="duration-badge">${escapeHTML(video.length || '')}</span>${status !== 'Not started' ? `<span class="progress-track"><i style="--progress:${percentFor(video)}%"></i></span>` : ''}</span><span class="side-text"><span class="side-caption">${escapeHTML(caption)}</span><strong>${escapeHTML(video.title)}</strong><span class="shelf-creator"><img src="${item(video.creator)}" alt="">${escapeHTML(video.creator)} · ${escapeHTML(video.date || '')}</span></span></button>`;
+  return `<button class="side-card" type="button" data-play="${video.id}" style="--card-rgb:${theme.rgb}"><span class="side-thumb"><img src="${thumbOf(video)}" alt="" loading="lazy"><span class="duration-badge">${escapeHTML(video.length || '')}</span>${status !== 'Not started' ? `<span class="progress-track"><i style="--progress:${percentFor(video)}%"></i></span>` : ''}</span><span class="side-text"><span class="side-caption">${escapeHTML(caption)}</span><strong>${escapeHTML(video.title)}</strong><span class="shelf-creator"><img src="${item(video.creator)}" alt="">${escapeHTML(video.creator)} · ${escapeHTML(video.date || '')}</span></span></button>`;
 }
 function renderPlayerSide(video) {
-  const blocks = [];
   const next = nextUp(video);
   const creatorNext = nextFromCreator(video);
-  if (next) blocks.push(settings.storyline ? `<h3>Up next in the storyline</h3>${sideCard(next, `${next.creator} · ${next.date || ''}`)}` : `<h3>Up next in the playlist</h3>${sideCard(next, `#${next.position}`)}`);
+  const blocks = [];
+  if (next) blocks.push(`<h3>${settings.storyline ? 'Up next in the storyline' : 'Up next'}</h3>${sideCard(next, settings.storyline ? `${next.creator} · ${next.date || ''}` : `#${next.position}`)}`);
   if (creatorNext && creatorNext.id !== next?.id) blocks.push(`<h3>Next from ${escapeHTML(video.creator)}</h3>${sideCard(creatorNext, `#${creatorNext.position}`)}`);
-  const perspectives = sameTimePerspectives(video);
-  if (perspectives.length) blocks.push(`<h3>Other perspectives</h3><p class="side-note">Uploaded within three days of this video.</p>${perspectives.map(candidate => sideCard(candidate, candidate.creator)).join('')}`);
   $('#playerSide').innerHTML = blocks.join('') || '<p class="side-note">This is the last video in the playlist.</p>';
+  $('#nextButton').disabled = !next;
+  renderPerspectives(video);
+  renderTimeline(video);
+}
+
+/* ---------- chapters, bookmarks, community moments ---------- */
+function loadMoments() {
+  if (!momentsPromise) momentsPromise = fetch('/api/moments').then(response => (response.ok ? response.json() : {videos: {}})).catch(() => ({videos: {}})).then(data => { momentsData = data; return data; });
+  return momentsPromise;
+}
+function communityMomentsFor(id) { return (momentsData?.videos?.[id]?.items || []).filter(moment => moment.source === 'comment'); }
+function chaptersFor(video) {
+  if (video.chapters?.length) return {list: video.chapters, source: 'From the uploader'};
+  const community = communityMomentsFor(video.id).slice().sort((a, b) => a.t - b.t);
+  return community.length >= 2 ? {list: community.map(moment => ({t: moment.t, label: moment.label})), source: 'From viewer comments'} : {list: [], source: ''};
+}
+function chapterAt(seconds, video = getVideo(activeVideoId)) {
+  const {list} = video ? chaptersFor(video) : {list: []};
+  let found = null;
+  for (const chapter of list) if (chapter.t <= seconds + 0.5) found = chapter;
+  return found;
+}
+// YouTube's auto-generated frames 1/2/3 sit near 25/50/75% of the video.
+function frameFor(video, seconds) {
+  const duration = currentDuration || video.durationSeconds || 0;
+  if (!duration || seconds < duration * 0.12) return `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;
+  const fraction = seconds / duration;
+  return `https://i.ytimg.com/vi/${video.id}/${fraction < 0.375 ? 1 : fraction < 0.625 ? 2 : 3}.jpg`;
+}
+function renderChapters(video) {
+  const {list, source} = chaptersFor(video);
+  $('#chapterSource').textContent = source;
+  $('#chapterPanel').hidden = !list.length;
+  const now = youtubePlayer?.getCurrentTime ? youtubePlayer.getCurrentTime() : 0;
+  const current = chapterAt(now, video);
+  $('#chapterList').innerHTML = list.map(chapter => `<li><button class="chapter-row ${current && current.t === chapter.t ? 'current' : ''}" type="button" data-seek="${Number(chapter.t)}"><img src="${escapeHTML(frameFor(video, chapter.t))}" alt="" loading="lazy"><span class="time-link">${formatSeconds(chapter.t)}</span><span class="chapter-label">${escapeHTML(chapter.label)}</span></button></li>`).join('');
+  renderMarkers(video);
 }
 function renderBookmarks() {
   const list = (profile.bookmarks[activeVideoId] || []).slice().sort((a, b) => a.t - b.t);
-  $('#bookmarkList').innerHTML = list.length ? list.map((mark, index) => `<li><button class="time-link" type="button" data-seek="${mark.t}">${formatSeconds(mark.t)}</button><span>${escapeHTML(mark.label || 'Bookmarked moment')}</span><button class="text-button danger" type="button" data-remove-bookmark="${index}" aria-label="Delete bookmark at ${formatSeconds(mark.t)}">Delete</button></li>`).join('') : '<li class="muted">No bookmarks for this video yet.</li>';
+  $('#bookmarkList').innerHTML = list.length ? list.map((mark, index) => `<li><button class="time-link" type="button" data-seek="${mark.t}">${formatSeconds(mark.t)}</button><span>${escapeHTML(mark.label || 'Bookmarked moment')}</span><button class="text-button danger" type="button" data-remove-bookmark="${index}" aria-label="Delete bookmark at ${formatSeconds(mark.t)}">Delete</button></li>`).join('') : '<li class="muted">No bookmarks yet. Press B or the bookmark button while watching.</li>';
+  const video = getVideo(activeVideoId);
+  if (video) renderMarkers(video);
 }
-function renderChapters(video) {
-  const chapters = video.chapters || [];
-  $('#chapterPanel').hidden = !chapters.length;
-  $('#chapterList').innerHTML = chapters.map(chapter => `<li><button class="time-link" type="button" data-seek="${Number(chapter.t)}">${formatSeconds(chapter.t)}</button><span>${escapeHTML(chapter.label)}</span></li>`).join('');
+function renderCommunityMoments(video) {
+  const list = communityMomentsFor(video.id);
+  $('#communityMoments').innerHTML = list.length
+    ? list.map(moment => `<li><button class="time-link" type="button" data-seek="${moment.t}">${formatSeconds(moment.t)}</button><span>${escapeHTML(moment.label)}</span><small>♥ ${Number(moment.likes || 0).toLocaleString()}</small></li>`).join('')
+    : `<li class="muted">${momentsData ? 'No timestamped comments found for this video yet. The index updates every few hours.' : 'Loading…'}</li>`;
 }
+function renderMarkers(video) {
+  const duration = currentDuration || video.durationSeconds || 0;
+  if (!duration) { $('#vMarkers').innerHTML = ''; return; }
+  const marks = [];
+  for (const chapter of chaptersFor(video).list) if (chapter.t > 0) marks.push(`<i class="mk chapter" style="left:${chapter.t / duration * 100}%" title="${escapeHTML(`${formatSeconds(chapter.t)} ${chapter.label}`)}"></i>`);
+  for (const mark of profile.bookmarks[video.id] || []) marks.push(`<i class="mk bookmark" style="left:${mark.t / duration * 100}%" title="${escapeHTML(`${formatSeconds(mark.t)} ${mark.label || 'Your bookmark'}`)}"></i>`);
+  $('#vMarkers').innerHTML = marks.join('');
+}
+
+/* ---------- rail + tabs ---------- */
 function refreshPlayerButtons() {
   if (!activeVideoId) return;
   const video = getVideo(activeVideoId);
   if (!video) return;
   const favorite = Boolean(profile.favorites[video.id]);
   const later = Boolean(profile.watchLater[video.id]);
-  $('#playerFavorite').textContent = favorite ? 'Favorited' : 'Favorite';
+  $('#playerFavorite').textContent = favorite ? '♥ Favorited' : '♡ Favorite';
   $('#playerFavorite').setAttribute('aria-pressed', String(favorite));
   $('#playerLater').textContent = later ? 'In watch later' : 'Watch later';
   $('#playerLater').setAttribute('aria-pressed', String(later));
-  $('#playerWatched').textContent = statusFor(video) === 'Watched' ? 'Unmark watched' : 'Mark watched';
+  $('#playerWatched').textContent = statusFor(video) === 'Watched' ? '✓ Watched' : 'Mark watched';
+  $('#playerWatched').setAttribute('aria-pressed', String(statusFor(video) === 'Watched'));
+  $('#railRating').innerHTML = ratingMarkup(video);
 }
+function renderRail(video) {
+  const theme = themes[video.creator] || themes.Other;
+  $('#railThumb').src = thumbOf(video);
+  $('#railKicker').innerHTML = `<img src="${item(video.creator)}" alt="">${escapeHTML(video.creator)}`;
+  $('#railKicker').style.color = theme.accent;
+  $('#railSub').textContent = `Unstable Universe · #${video.position}${settings.storyline ? ` · story #${storyOrder().findIndex(candidate => candidate.id === video.id) + 1}` : ''}`;
+  $('#railTitle').textContent = video.title;
+  $('#railDesc').textContent = video.description || '';
+  refreshPlayerButtons();
+}
+function setPanel(name) {
+  activePanel = name;
+  document.querySelectorAll('[data-ptab]').forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.ptab === name)));
+  document.querySelectorAll('[data-ppanel]').forEach(panel => { panel.hidden = panel.dataset.ppanel !== name; });
+  const video = getVideo(activeVideoId);
+  if (!video) return;
+  if (name === 'context') renderContext(video);
+  if (name === 'comments' && !$('#commentMount .comment-list')) loadComments();
+  if (name === 'notes') $('#notesInput').focus({preventScroll: true});
+}
+function renderPerspectives(video) {
+  const list = sameTimePerspectives(video, 6);
+  $('#perspectivesPanel').innerHTML = `<div class="panel-head"><h3 class="pl-sub">Watch this from other perspectives</h3><span class="side-note">Uploads from other creators within three days</span></div>
+    ${list.length ? `<div class="persp-row">${list.map(other => {
+      const theme = themes[other.creator] || themes.Other;
+      return `<div class="persp-card" style="--card-rgb:${theme.rgb}"><button class="persp-art" type="button" data-play="${other.id}"><img src="${thumbOf(other)}" alt="" loading="lazy"><span class="duration-badge">${escapeHTML(other.length || '')}</span></button><div class="persp-body"><span class="shelf-creator"><img src="${item(other.creator)}" alt="">${escapeHTML(other.creator)} · ${escapeHTML(other.date || '')}</span><strong>${escapeHTML(other.title)}</strong><div class="persp-actions"><button class="quiet-action compact" type="button" data-play="${other.id}">Switch</button><button class="quiet-action compact" type="button" data-multi="${other.id}">Side by side</button></div></div></div>`;
+    }).join('')}</div>` : '<p class="side-note">No other creator uploaded within three days of this video. Try the Timeline tab.</p>'}`;
+}
+function renderTimeline(video) {
+  const list = storyOrder();
+  const index = list.findIndex(candidate => candidate.id === video.id);
+  const windowed = list.slice(Math.max(0, index - 4), index + 5);
+  $('#timelinePanel').innerHTML = `<div class="panel-head"><h3 class="pl-sub">Where this sits in the story</h3><span class="side-note">#${index + 1} of ${list.length} by upload date</span></div>
+    <div class="tl-row">${windowed.map(other => {
+      const theme = themes[other.creator] || themes.Other;
+      return `<button class="tl-node ${other.id === video.id ? 'current' : ''} status-${statusFor(other).toLowerCase().replace(' ', '-')}" type="button" data-play="${other.id}" style="--card-rgb:${theme.rgb}"><span class="tl-dot"></span><span class="tl-date">${escapeHTML(other.date || '')}</span><img src="${thumbOf(other)}" alt="" loading="lazy"><span class="tl-creator">${escapeHTML(other.creator)}</span><span class="tl-title">${escapeHTML(other.title)}</span></button>`;
+    }).join('')}</div>`;
+}
+async function renderContext(video) {
+  const tags = video.tags.map(tag => `<span class="tag" title="Keyword match">${escapeHTML(tag)}</span>`).join('');
+  const base = `<dl class="ctx-grid"><div><dt>Creator</dt><dd>${escapeHTML(video.creator)}</dd></div><div><dt>Uploaded</dt><dd>${escapeHTML(video.date || '')}</dd></div><div><dt>Length</dt><dd>${escapeHTML(video.length || '')}</dd></div><div><dt>Views</dt><dd>${escapeHTML(video.views || '')}</dd></div><div><dt>Playlist</dt><dd>#${video.position}</dd></div><div><dt>Story order</dt><dd>#${storyOrder().findIndex(candidate => candidate.id === video.id) + 1}</dd></div></dl>${tags ? `<div class="tag-row">${tags}</div>` : ''}`;
+  $('#contextPanel').innerHTML = `${base}<h3 class="pl-sub">Full description</h3><div class="ctx-desc" id="ctxDesc">Loading…</div>`;
+  try {
+    if (!detailsCache.has(video.id)) detailsCache.set(video.id, await requestJSON(`/api/video?id=${encodeURIComponent(video.id)}`));
+    if (activeVideoId !== video.id) return;
+    const details = detailsCache.get(video.id);
+    const linked = escapeHTML(details.description || 'No description.').replace(/(^|\s)((?:\d{1,2}:)?\d{1,2}:\d{2})(?=\s|$)/g, (all, space, stamp) => `${space}<button class="time-link" type="button" data-seek="${stamp.split(':').map(Number).reduce((total, part) => total * 60 + part, 0)}">${stamp}</button>`);
+    $('#ctxDesc').innerHTML = linked;
+    if (details.likes) $('#contextPanel .ctx-grid').insertAdjacentHTML('beforeend', `<div><dt>Likes</dt><dd>${details.likes.toLocaleString()}</dd></div><div><dt>Comments</dt><dd>${details.comments.toLocaleString()}</dd></div>`);
+  } catch (error) {
+    if (activeVideoId === video.id) $('#ctxDesc').textContent = video.description || error.message;
+  }
+}
+
+/* ---------- notes ---------- */
+let notesTimer = null;
+function loadNotes() { $('#notesInput').value = profile.notes?.[activeVideoId] || ''; $('#notesStatus').textContent = ''; }
+function saveNotes() {
+  if (!activeVideoId) return;
+  const text = $('#notesInput').value.slice(0, 4000);
+  if (text.trim()) profile.notes[activeVideoId] = text; else delete profile.notes[activeVideoId];
+  saveProfile();
+  $('#notesStatus').textContent = account.user ? 'Saved and syncing.' : 'Saved on this device.';
+}
+
+/* ---------- custom controls ---------- */
+const stage = $('#vstage');
+function isPlaying() { try { return youtubePlayer?.getPlayerState?.() === 1; } catch { return false; } }
+function updateControls() {
+  if (!youtubePlayer?.getCurrentTime) return;
+  let current = 0;
+  try { current = youtubePlayer.getCurrentTime() || 0; currentDuration = youtubePlayer.getDuration() || currentDuration; } catch { return; }
+  const duration = currentDuration || 1;
+  if (!scrubbing) {
+    const share = Math.min(100, current / duration * 100);
+    $('#vPlayed').style.width = `${share}%`;
+    $('#vKnob').style.left = `${share}%`;
+  }
+  try { $('#vBuffer').style.width = `${Math.min(100, (youtubePlayer.getVideoLoadedFraction?.() || 0) * 100)}%`; } catch { /* not ready */ }
+  $('#vTime').textContent = `${formatSeconds(current)} / ${formatSeconds(currentDuration)}`;
+  $('#vScrub').setAttribute('aria-valuemax', String(Math.round(currentDuration)));
+  $('#vScrub').setAttribute('aria-valuenow', String(Math.round(current)));
+  $('#vScrub').setAttribute('aria-valuetext', `${formatSeconds(current)} of ${formatSeconds(currentDuration)}`);
+  const chapter = chapterAt(current);
+  const label = chapter ? chapter.label : '';
+  if ($('#vChapter').textContent !== label) {
+    $('#vChapter').textContent = label;
+    document.querySelectorAll('#chapterList .chapter-row').forEach(row => row.classList.toggle('current', Boolean(chapter) && Number(row.dataset.seek) === chapter.t));
+  }
+  stage.classList.toggle('playing', isPlaying());
+  $('#vPlay').setAttribute('aria-label', isPlaying() ? 'Pause (K)' : 'Play (K)');
+  if (secondPlayer && multiSync && secondPlayer.getCurrentTime) {
+    try {
+      const target = current + multiOffset;
+      if (Math.abs((secondPlayer.getCurrentTime() || 0) - target) > 2.5) secondPlayer.seekTo(Math.max(0, target), true);
+      const secondPlaying = secondPlayer.getPlayerState() === 1;
+      if (isPlaying() && !secondPlaying) secondPlayer.playVideo();
+      if (!isPlaying() && secondPlaying) secondPlayer.pauseVideo();
+    } catch { /* second view not ready */ }
+  }
+}
+function startControlLoop() { clearInterval(controlsTimer); controlsTimer = setInterval(updateControls, 250); updateControls(); }
+function flash(kind) {
+  const element = $('#vFlash');
+  element.dataset.kind = kind;
+  element.classList.remove('show');
+  void element.offsetWidth;
+  element.classList.add('show');
+}
+function togglePlay() {
+  if (!youtubePlayer?.getPlayerState) return;
+  if (isPlaying()) { youtubePlayer.pauseVideo(); flash('pause'); }
+  else { youtubePlayer.playVideo(); flash('play'); }
+  setTimeout(updateControls, 120);
+}
+function seekBy(delta) {
+  if (!youtubePlayer?.getCurrentTime) return;
+  const target = Math.max(0, Math.min(currentDuration || Infinity, (youtubePlayer.getCurrentTime() || 0) + delta));
+  youtubePlayer.seekTo(target, true);
+  flash(delta < 0 ? 'back' : 'fwd');
+  setTimeout(updateControls, 120);
+}
+function seekTo(seconds) {
+  if (!youtubePlayer?.seekTo) { toast('Seeking needs the YouTube player to finish loading.'); return; }
+  youtubePlayer.seekTo(Math.max(0, seconds), true);
+  youtubePlayer.playVideo?.();
+  setTimeout(updateControls, 150);
+}
+function applyVolume() {
+  if (!youtubePlayer?.setVolume) return;
+  youtubePlayer.setVolume(settings.videoVolume);
+  if (settings.videoMuted) youtubePlayer.mute(); else youtubePlayer.unMute();
+  $('#vVolume').value = String(settings.videoMuted ? 0 : settings.videoVolume);
+  $('#vVolume').style.setProperty('--fill', `${settings.videoMuted ? 0 : settings.videoVolume}%`);
+  stage.classList.toggle('muted', settings.videoMuted || settings.videoVolume === 0);
+}
+function setVideoVolume(value) { settings.videoVolume = clamp(Math.round(value), 0, 100); settings.videoMuted = settings.videoVolume === 0; saveSettings(); applyVolume(); }
+function toggleMute() { settings.videoMuted = !settings.videoMuted; if (!settings.videoMuted && settings.videoVolume === 0) settings.videoVolume = 60; saveSettings(); applyVolume(); flash(settings.videoMuted ? 'mute' : 'unmute'); }
+function setCaptions(on) {
+  settings.captions = on;
+  saveSettings();
+  $('#vCC').setAttribute('aria-pressed', String(on));
+  try {
+    if (on) { youtubePlayer.loadModule('captions'); youtubePlayer.setOption('captions', 'track', {languageCode: 'en'}); }
+    else { youtubePlayer.setOption('captions', 'track', {}); youtubePlayer.unloadModule('captions'); }
+  } catch { /* captions not available for this video */ }
+}
+function setSpeed(rate) {
+  try { youtubePlayer.setPlaybackRate(rate); } catch { return; }
+  settings.speed = rate;
+  saveSettings();
+  toast(`Speed ${rate}×`);
+  renderMenu();
+}
+function stepSpeed(direction) {
+  const rates = youtubePlayer?.getAvailablePlaybackRates?.() || [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+  const current = youtubePlayer?.getPlaybackRate?.() || 1;
+  const index = rates.indexOf(current);
+  const next = rates[clamp(index + direction, 0, rates.length - 1)];
+  if (next && next !== current) setSpeed(next);
+}
+function renderMenu() {
+  const rates = youtubePlayer?.getAvailablePlaybackRates?.() || [0.5, 0.75, 1, 1.25, 1.5, 2];
+  const current = youtubePlayer?.getPlaybackRate?.() || 1;
+  $('#vMenu').innerHTML = `<p class="v-menu-label">Speed</p><div class="v-speeds">${rates.map(rate => `<button type="button" data-speed="${rate}" aria-pressed="${rate === current}">${rate === 1 ? 'Normal' : `${rate}×`}</button>`).join('')}</div>
+    <label class="side-toggle"><span>Captions</span><input type="checkbox" data-menu="captions" ${settings.captions ? 'checked' : ''} /></label>
+    <label class="side-toggle"><span>Auto-play next</span><input type="checkbox" data-menu="autoplay" ${settings.autoplay ? 'checked' : ''} /></label>
+    <label class="side-toggle"><span>Storyline order</span><input type="checkbox" data-menu="storyline" ${settings.storyline ? 'checked' : ''} /></label>
+    <p class="v-menu-note">Video quality is chosen automatically by YouTube.</p>`;
+}
+function toggleMenu(force) {
+  const open = typeof force === 'boolean' ? force : $('#vMenu').hidden;
+  if (open) renderMenu();
+  $('#vMenu').hidden = !open;
+  $('#vSettings').setAttribute('aria-expanded', String(open));
+  stage.classList.toggle('menu-open', open);
+}
+function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+function toggleFullscreen() {
+  if (fullscreenElement()) { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); return; }
+  const request = stage.requestFullscreen || stage.webkitRequestFullscreen;
+  if (request) request.call(stage).catch?.(() => toggleTheater());
+  else toggleTheater();
+}
+function toggleTheater() { settings.theater = !settings.theater; saveSettings(); if (playerDialog.classList.contains('mini')) minimizeOrExpand(); else showPlayerDialog('modal'); }
+['fullscreenchange', 'webkitfullscreenchange'].forEach(type => document.addEventListener(type, () => stage.classList.toggle('is-full', Boolean(fullscreenElement()))));
+function wake() {
+  stage.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (isPlaying() && !scrubbing && $('#vMenu').hidden) stage.classList.add('idle'); }, 2600);
+}
+function scrubFraction(event) {
+  const rect = $('#vScrub').getBoundingClientRect();
+  return clamp((event.clientX - rect.left) / rect.width, 0, 1);
+}
+function showTip(event) {
+  const video = getVideo(activeVideoId);
+  if (!video || !currentDuration) return;
+  const fraction = scrubFraction(event);
+  const seconds = fraction * currentDuration;
+  const chapter = chapterAt(seconds, video);
+  const tip = $('#vTip');
+  tip.innerHTML = `${chapter ? `<span>${escapeHTML(chapter.label)}</span>` : ''}<b>${formatSeconds(seconds)}</b>`;
+  tip.style.left = `${fraction * 100}%`;
+  tip.classList.add('show');
+  if (scrubbing) { $('#vPlayed').style.width = `${fraction * 100}%`; $('#vKnob').style.left = `${fraction * 100}%`; }
+}
+$('#vScrub').addEventListener('pointerdown', event => { if (!currentDuration) return; scrubbing = true; $('#vScrub').setPointerCapture(event.pointerId); stage.classList.add('scrubbing'); showTip(event); });
+$('#vScrub').addEventListener('pointermove', showTip);
+$('#vScrub').addEventListener('pointerleave', () => { if (!scrubbing) $('#vTip').classList.remove('show'); });
+$('#vScrub').addEventListener('pointerup', event => { if (!scrubbing) return; scrubbing = false; stage.classList.remove('scrubbing'); $('#vTip').classList.remove('show'); seekTo(scrubFraction(event) * currentDuration); });
+$('#vScrub').addEventListener('keydown', event => {
+  const steps = {ArrowLeft: -5, ArrowRight: 5, PageDown: -30, PageUp: 30};
+  if (steps[event.key]) { event.preventDefault(); event.stopPropagation(); seekBy(steps[event.key]); }
+  else if (event.key === 'Home') { event.preventDefault(); seekTo(0); }
+  else if (event.key === 'End') { event.preventDefault(); seekTo(Math.max(0, currentDuration - 2)); }
+});
+stage.addEventListener('pointermove', wake);
+stage.addEventListener('pointerdown', wake);
+$('#vHit').addEventListener('click', () => { if (!$('#vMenu').hidden) { toggleMenu(false); return; } togglePlay(); });
+$('#vHit').addEventListener('dblclick', toggleFullscreen);
+$('#vPlay').addEventListener('click', togglePlay);
+$('#vBack').addEventListener('click', () => seekBy(-10));
+$('#vFwd').addEventListener('click', () => seekBy(10));
+$('#vNext').addEventListener('click', () => $('#nextButton').click());
+$('#vMute').addEventListener('click', toggleMute);
+$('#vVolume').addEventListener('input', event => setVideoVolume(Number(event.target.value)));
+$('#vCC').addEventListener('click', () => setCaptions(!settings.captions));
+$('#vSettings').addEventListener('click', event => { event.stopPropagation(); toggleMenu(); });
+$('#vMenu').addEventListener('click', event => { event.stopPropagation(); const speed = event.target.closest('[data-speed]'); if (speed) setSpeed(Number(speed.dataset.speed)); });
+$('#vMenu').addEventListener('change', event => {
+  const key = event.target.dataset.menu;
+  if (key === 'captions') setCaptions(event.target.checked);
+  if (key === 'autoplay') { settings.autoplay = event.target.checked; saveSettings(); syncSettingsControls(); }
+  if (key === 'storyline') setStoryline(event.target.checked);
+});
+$('#vBookmark').addEventListener('click', () => addBookmark());
+$('#vMini').addEventListener('click', () => minimizeOrExpand());
+$('#vTheater').addEventListener('click', toggleTheater);
+$('#vFull').addEventListener('click', toggleFullscreen);
+document.querySelectorAll('[data-ptab]').forEach(tab => tab.addEventListener('click', () => setPanel(tab.dataset.ptab)));
+$('#notesInput').addEventListener('input', () => { clearTimeout(notesTimer); $('#notesStatus').textContent = 'Saving…'; notesTimer = setTimeout(saveNotes, 600); });
+$('#notesStamp').addEventListener('click', () => {
+  const t = youtubePlayer?.getCurrentTime ? Math.floor(youtubePlayer.getCurrentTime()) : 0;
+  const input = $('#notesInput');
+  const stamp = `[${formatSeconds(t)}] `;
+  const at = input.selectionStart ?? input.value.length;
+  input.value = `${input.value.slice(0, at)}${at && input.value[at - 1] !== '\n' ? '\n' : ''}${stamp}${input.value.slice(at)}`;
+  input.focus();
+  saveNotes();
+});
+
+/* ---------- multi-view ---------- */
+async function openMulti(otherId) {
+  const video = getVideo(activeVideoId);
+  const other = getVideo(otherId) || sameTimePerspectives(video || {}, 1)[0];
+  if (!video || !other) { toast('No other perspective to show side by side.'); return; }
+  closeMulti(false);
+  $('#plStages').classList.add('split');
+  $('#vstage2').hidden = false;
+  $('#multiButton').setAttribute('aria-pressed', 'true');
+  const options = [...new Set([other, ...sameTimePerspectives(video, 8), ...storyOrder().filter(candidate => candidate.id !== video.id)])].slice(0, 40);
+  $('#multiSelect').innerHTML = options.map(candidate => `<option value="${candidate.id}" ${candidate.id === other.id ? 'selected' : ''}>${escapeHTML(`${candidate.creator} · ${candidate.title}`.slice(0, 70))}</option>`).join('');
+  try {
+    const YT = await loadYouTubeAPI();
+    $('#playerMount2').innerHTML = '<div id="youtubePlayer2"></div>';
+    secondPlayer = new YT.Player('youtubePlayer2', {
+      videoId: other.id, host: 'https://www.youtube-nocookie.com',
+      playerVars: {autoplay: 1, rel: 0, playsinline: 1, controls: 1, iv_load_policy: 3, modestbranding: 1, origin: location.origin, mute: 1},
+      events: {onReady: event => { event.target.mute(); const t = youtubePlayer?.getCurrentTime?.() || 0; multiOffset = 0; event.target.seekTo(t, true); if (isPlaying()) event.target.playVideo(); }}
+    });
+  } catch { toast('The second player could not load.'); closeMulti(); }
+}
+function closeMulti(updateButton = true) {
+  try { secondPlayer?.destroy(); } catch { /* gone */ }
+  secondPlayer = null;
+  $('#playerMount2').innerHTML = '';
+  $('#vstage2').hidden = true;
+  $('#plStages').classList.remove('split');
+  if (updateButton) $('#multiButton').setAttribute('aria-pressed', 'false');
+}
+$('#multiButton').addEventListener('click', () => (secondPlayer ? closeMulti() : openMulti()));
+$('#multiClose').addEventListener('click', () => closeMulti());
+$('#multiSelect').addEventListener('change', event => openMulti(event.target.value));
+$('#multiSync').addEventListener('click', () => {
+  multiSync = !multiSync;
+  $('#multiSync').setAttribute('aria-pressed', String(multiSync));
+  if (multiSync && secondPlayer?.getCurrentTime) multiOffset = (secondPlayer.getCurrentTime() || 0) - (youtubePlayer?.getCurrentTime?.() || 0);
+  toast(multiSync ? 'Synced: both videos play, pause and seek together.' : 'Sync off: control each video on its own.');
+});
+$('#multiAudio').addEventListener('click', () => {
+  if (!secondPlayer?.isMuted) return;
+  if (secondPlayer.isMuted()) { secondPlayer.unMute(); youtubePlayer?.mute(); settings.videoMuted = true; }
+  else { secondPlayer.mute(); settings.videoMuted = false; youtubePlayer?.unMute(); }
+  applyVolume();
+});
+
+/* ---------- lifecycle ---------- */
 function teardownPlayer() {
   recordPlayerProgress();
   if (playerTimer) window.clearInterval(playerTimer);
   playerTimer = null;
+  clearInterval(controlsTimer);
+  controlsTimer = null;
+  closeMulti();
+  toggleMenu(false);
+  if (fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   try { youtubePlayer?.destroy(); } catch { /* player may already be gone */ }
   youtubePlayer = null;
+  currentDuration = 0;
+  stage.classList.remove('native', 'playing', 'idle');
   $('#playerMount').innerHTML = '';
 }
 function recordPlayerProgress() {
@@ -1400,7 +1778,7 @@ function recordPlayerProgress() {
     if (completed && profile.watchLater[activeVideoId]) delete profile.watchLater[activeVideoId];
     profile.lastVideoId = activeVideoId;
     saveProfile();
-    $('#playerProgressText').textContent = `${formatSeconds(seconds)} of ${formatSeconds(duration)} saved on this device.`;
+    $('#playerProgressText').textContent = `${formatSeconds(seconds)} of ${formatSeconds(duration)} saved${account.user ? ' to your account' : ' on this device'}.`;
     $('#playerProgressBar').style.setProperty('--progress', `${Math.round(seconds / duration * 100)}%`);
   } catch { /* YouTube player may not be ready yet */ }
 }
@@ -1419,14 +1797,11 @@ function loadYouTubeAPI() {
   return youtubeLoader;
 }
 function fallbackPlayer(video) {
-  const start = progressFor(video.id).seconds > 4 && !progressFor(video.id).completed ? `&start=${Math.floor(progressFor(video.id).seconds)}` : '';
-  $('#playerMount').innerHTML = `<iframe title="${escapeHTML(video.title)}" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?rel=0${start}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+  const saved = progressFor(video.id);
+  const startAt = playerOptions.start >= 0 ? playerOptions.start : saved.seconds > 4 && !saved.completed ? saved.seconds : 0;
+  stage.classList.add('native');
+  $('#playerMount').innerHTML = `<iframe title="${escapeHTML(video.title)}" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?rel=0${startAt ? `&start=${Math.floor(startAt)}` : ''}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
   $('#playerProgressText').textContent = 'Embedded player loaded. Automatic progress saving needs the YouTube player API, which did not load.';
-}
-function seekTo(seconds) {
-  if (!youtubePlayer?.seekTo) { toast('Seeking needs the YouTube player to finish loading.'); return; }
-  youtubePlayer.seekTo(seconds, true);
-  youtubePlayer.playVideo?.();
 }
 function showPlayerDialog(mode = 'modal') {
   if (mode === 'modal' && playerDialog.open && !playerDialog.matches(':modal')) { suppressCloseTeardown = true; playerDialog.close(); }
@@ -1434,33 +1809,47 @@ function showPlayerDialog(mode = 'modal') {
   playerDialog.classList.toggle('mini', mode === 'mini');
   playerDialog.classList.toggle('theater', settings.theater && mode === 'modal');
   $('#theaterButton').setAttribute('aria-pressed', String(settings.theater));
-  $('#miniButton').textContent = mode === 'mini' ? 'Expand' : 'Mini player';
+  $('#vTheater').setAttribute('aria-pressed', String(settings.theater));
+  $('#miniButton').querySelector('span').textContent = mode === 'mini' ? 'Expand' : 'Mini player';
 }
-async function openPlayer(id) {
+async function openPlayer(id, options = {}) {
   const video = getVideo(id);
   if (!video) return;
+  playerOptions = options;
   if (activeVideoId && activeVideoId !== id) teardownPlayer();
-  else if (activeVideoId === id && youtubePlayer) { showPlayerDialog('modal'); return; }
+  else if (activeVideoId === id && youtubePlayer) { showPlayerDialog('modal'); if (options.start >= 0) seekTo(options.start); return; }
   activeVideoId = id;
+  const theme = themes[video.creator] || themes.Other;
   $('#playerTitle').textContent = video.title;
-  $('#playerEyebrow').textContent = `NOW PLAYING · ${video.creator.toUpperCase()} · #${video.position}`;
-  playerDialog.style.setProperty('--card-rgb', (themes[video.creator] || themes.Other).rgb);
+  $('#playerEyebrow').innerHTML = `<span style="color:${theme.accent}">${escapeHTML(video.creator)}</span> · Unstable Universe · #${video.position} · ${escapeHTML(video.date || '')} · ${escapeHTML(video.length || '')}`;
+  $('#playerBadgeIcon').src = item(video.creator);
+  playerDialog.style.setProperty('--card-rgb', theme.rgb);
+  playerDialog.style.setProperty('--card-accent', theme.accent);
   $('#playerMount').innerHTML = '<div class="player-loading"><span></span>Loading embedded player…</div>';
   $('#playerProgressBar').style.setProperty('--progress', `${percentFor(video)}%`);
-  $('#playerProgressText').textContent = `${percentFor(video)}% of this video is saved on this device.`;
+  $('#playerProgressText').textContent = `${percentFor(video)}% watched${account.user ? ' · synced to your account' : ''}.`;
   $('#resumeNote').hidden = true;
-  $('#nextButton').disabled = !nextUp(video);
+  $('#vChapter').textContent = '';
+  $('#vTime').textContent = `0:00 / ${video.length || '0:00'}`;
+  $('#vPlayed').style.width = '0%';
+  $('#vKnob').style.left = '0%';
+  currentDuration = video.durationSeconds || 0;
   cancelAutoplay();
   openedThisSession = true;
   renderRecap();
   $('#commentMount').innerHTML = '<button class="quiet-action" id="loadComments" type="button">Show comments</button>';
   $('#bookmarkLabel').value = '';
-  refreshPlayerButtons();
+  renderRail(video);
   renderBookmarks();
   renderChapters(video);
   renderPlayerSide(video);
+  renderCommunityMoments(video);
+  renderRelatedLibrary(video);
+  loadNotes();
+  setPanel(activePanel === 'comments' || activePanel === 'context' ? 'perspectives' : activePanel);
   showPlayerDialog('modal');
   writeURL();
+  loadMoments().then(() => { if (activeVideoId === id) { renderChapters(video); renderCommunityMoments(video); } });
   try {
     const YT = await loadYouTubeAPI();
     if (activeVideoId !== id || !playerDialog.open) return;
@@ -1468,22 +1857,35 @@ async function openPlayer(id) {
     youtubePlayer = new YT.Player('youtubePlayer', {
       videoId: id,
       host: 'https://www.youtube-nocookie.com',
-      playerVars: {autoplay: 1, rel: 0, playsinline: 1, origin: location.origin},
+      playerVars: {autoplay: 1, rel: 0, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, cc_load_policy: settings.captions ? 1 : 0, origin: location.origin},
       events: {
         onReady: event => {
           if (activeVideoId !== id) return;
           const saved = progressFor(id);
-          if (!saved.completed && saved.seconds > 4 && (!saved.duration || saved.seconds < saved.duration - 8)) {
+          currentDuration = event.target.getDuration() || currentDuration;
+          if (playerOptions.start >= 0) {
+            event.target.seekTo(playerOptions.start, true);
+            $('#resumeNote').innerHTML = `Jumped to <strong>${formatSeconds(playerOptions.start)}</strong>${playerOptions.label ? `: ${escapeHTML(playerOptions.label)}` : ''}. <button class="text-button" type="button" data-seek="0">Watch from the start</button>`;
+            $('#resumeNote').hidden = false;
+          } else if (!saved.completed && saved.seconds > 4 && (!saved.duration || saved.seconds < saved.duration - 8)) {
             event.target.seekTo(saved.seconds, true);
             $('#resumeNote').innerHTML = `Resumed at <strong>${formatSeconds(saved.seconds)}</strong>, where you left off. <button class="text-button" type="button" data-seek="0">Start over</button>`;
             $('#resumeNote').hidden = false;
           }
+          applyVolume();
+          if (settings.speed && settings.speed !== 1) { try { event.target.setPlaybackRate(settings.speed); } catch { /* unsupported */ } }
+          if (settings.captions) setCaptions(true);
           event.target.playVideo();
+          renderMarkers(video);
+          startControlLoop();
+          wake();
           if (playerTimer) window.clearInterval(playerTimer);
           playerTimer = window.setInterval(recordPlayerProgress, 4000);
         },
         onStateChange: event => {
           if (activeVideoId !== id) return;
+          updateControls();
+          wake();
           if (event.data === YT.PlayerState.ENDED) {
             const duration = Math.floor(event.target.getDuration() || 0);
             noteCompletion(id, profile.progress[id]);
@@ -1497,7 +1899,8 @@ async function openPlayer(id) {
             else if (next) toast(`Finished. Up next: ${next.title}`);
           }
           if (event.data === YT.PlayerState.PAUSED) recordPlayerProgress();
-        }
+        },
+        onError: () => { if (activeVideoId === id) toast('YouTube could not play this video here. Try "Open on YouTube".'); }
       }
     });
   } catch {
@@ -1507,8 +1910,9 @@ async function openPlayer(id) {
 function closePlayer() { playerDialog.close(); }
 function minimizeOrExpand() {
   if (!playerDialog.open) return;
+  if (fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   if (playerDialog.classList.contains('mini')) { suppressCloseTeardown = true; playerDialog.close(); showPlayerDialog('modal'); }
-  else { suppressCloseTeardown = true; playerDialog.close(); showPlayerDialog('mini'); toast('Mini player on. Keep browsing.'); }
+  else { closeMulti(); suppressCloseTeardown = true; playerDialog.close(); showPlayerDialog('mini'); toast('Mini player on. Keep browsing.'); }
 }
 function addBookmark(event) {
   event?.preventDefault();
@@ -1516,11 +1920,13 @@ function addBookmark(event) {
   if (!youtubePlayer?.getCurrentTime) { toast('Bookmarks need the YouTube player to finish loading.'); return; }
   const t = Math.floor(youtubePlayer.getCurrentTime() || 0);
   const list = profile.bookmarks[activeVideoId] || [];
-  list.push({t, label: $('#bookmarkLabel').value.trim().slice(0, 60), at: Date.now()});
+  const label = $('#bookmarkLabel').value.trim().slice(0, 60) || chapterAt(t)?.label || '';
+  list.push({t, label, at: Date.now()});
   profile.bookmarks[activeVideoId] = list.slice(-50);
   saveProfile();
   $('#bookmarkLabel').value = '';
   renderBookmarks();
+  flash('bookmark');
   toast(`Bookmarked ${formatSeconds(t)}`);
 }
 function removeBookmark(index) {
@@ -1538,10 +1944,31 @@ async function loadComments() {
     const data = await requestJSON(`/api/comments?videoId=${encodeURIComponent(id)}`);
     if (id !== activeVideoId) return;
     const comments = data.comments || [];
-    $('#commentMount').innerHTML = comments.length ? `<ul class="comment-list">${comments.map(comment => `<li><div class="comment-head"><strong>${escapeHTML(comment.author)}</strong><span>${escapeHTML(comment.publishedAt)} · ${Number(comment.likes || 0).toLocaleString()} likes</span></div><p>${escapeHTML(comment.text)}</p></li>`).join('')}</ul>` : '<p class="muted">No comments are available for this video.</p>';
+    const withStamps = text => escapeHTML(text).replace(/(^|[\s(])((?:\d{1,2}:)?\d{1,2}:\d{2})(?=[\s).,!?]|$)/g, (all, space, stamp) => `${space}<button class="time-link" type="button" data-seek="${stamp.split(':').map(Number).reduce((total, part) => total * 60 + part, 0)}">${stamp}</button>`);
+    $('#commentMount').innerHTML = comments.length ? `<p class="side-note">Top comments from YouTube. They may contain spoilers. Timestamps are clickable.</p><ul class="comment-list">${comments.map(comment => `<li><div class="comment-head"><strong>${escapeHTML(comment.author)}</strong><span>${escapeHTML(comment.publishedAt)} · ${Number(comment.likes || 0).toLocaleString()} likes</span></div><p>${withStamps(comment.text)}</p></li>`).join('')}</ul>` : '<p class="muted">No comments are available for this video.</p>';
   } catch (error) {
     if (id === activeVideoId) $('#commentMount').innerHTML = `<p class="muted">${escapeHTML(error.message || 'Comments could not load.')}</p>`;
   }
+}
+// Player keyboard: returns true when the key was handled.
+function playerKey(event) {
+  const key = event.key;
+  const lower = key.length === 1 ? key.toLowerCase() : key;
+  if (event.target instanceof HTMLElement && event.target.closest('button, select, a') && (key === ' ' || key === 'Enter')) return false;
+  const actions = {
+    ' ': togglePlay, k: togglePlay, j: () => seekBy(-10), l: () => seekBy(10), ArrowLeft: () => seekBy(-5), ArrowRight: () => seekBy(5),
+    ArrowUp: () => setVideoVolume(settings.videoVolume + 5), ArrowDown: () => setVideoVolume(settings.videoVolume - 5), m: toggleMute,
+    f: toggleFullscreen, t: toggleTheater, i: minimizeOrExpand, v: () => (secondPlayer ? closeMulti() : openMulti()), n: () => $('#nextButton').click(),
+    b: () => addBookmark(), c: () => setCaptions(!settings.captions), ',': () => stepSpeed(-1), '.': () => stepSpeed(1), '<': () => stepSpeed(-1), '>': () => stepSpeed(1),
+    s: () => toggleFavorite(activeVideoId), w: () => toggleLater(activeVideoId)
+  };
+  if (/^[0-9]$/.test(key) && currentDuration) { event.preventDefault(); seekTo(currentDuration * Number(key) / 10); return true; }
+  const action = actions[lower];
+  if (!action) return false;
+  event.preventDefault();
+  action();
+  wake();
+  return true;
 }
 
 /* ==========================================================================
@@ -1584,6 +2011,7 @@ function mergeProfiles(localRaw, remoteRaw) {
   merged.favoriteCreator = local.favoriteCreator || remote.favoriteCreator;
   merged.lastVideoId = local.lastVideoId || remote.lastVideoId;
   merged.equipped = local.equipped || remote.equipped;
+  merged.notes = {...remote.notes, ...local.notes};
   for (const id of new Set([...Object.keys(local.achievements), ...Object.keys(remote.achievements)])) merged.achievements[id] = Math.min(...[local.achievements[id], remote.achievements[id]].filter(Boolean));
   merged.days = {...remote.days, ...local.days};
   for (const key of new Set([...Object.keys(local.counters), ...Object.keys(remote.counters)])) merged.counters[key] = Math.max(local.counters[key] || 0, remote.counters[key] || 0);
@@ -1950,6 +2378,9 @@ function paletteCommands() {
     ...[['playlist', 'Playlist order'], ['newest', 'Newest upload'], ['oldest', 'Oldest upload'], ['views', 'Most viewed'], ['rating', 'My rating'], ['longest', 'Longest'], ['shortest', 'Shortest']].map(([value, label]) => ({label: `Sort: ${label}`, icon: 'Search', run: () => setFilter('sort', value)})),
     {label: 'Clear all filters', icon: 'Other', run: clearFilters},
     {label: settings.storyline ? 'Turn storyline mode off' : 'Start storyline mode', icon: 'Bookmarked', run: () => (settings.storyline ? setStoryline(false) : startStoryline())},
+    {label: 'Open the Library', icon: 'Bookmarked', run: () => { location.hash = '#/library'; }},
+    {label: 'Open Scene Finder', icon: 'Search', run: () => { location.hash = '#/scenes'; }},
+    {label: 'Back to the videos', icon: 'All', run: () => { location.hash = '#/'; }},
     {label: 'Open the upload calendar', icon: 'Watch later', run: () => openCalendar()},
     {label: 'Open advancements', icon: 'Rated', run: () => openVault('advancements')},
     {label: 'Open inventory', icon: 'Favorites', run: () => openVault('inventory')},
@@ -2002,11 +2433,8 @@ document.addEventListener('keydown', event => {
   if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
   const modalOpen = document.querySelector('dialog:modal');
   const playerModal = modalOpen === playerDialog;
-  if (playerModal || (playerDialog.open && !modalOpen)) {
-    const lower = key.toLowerCase();
-    const actions = {n: () => $('#nextButton').click(), f: () => toggleFavorite(activeVideoId), l: () => toggleLater(activeVideoId), b: () => addBookmark(), t: () => $('#theaterButton').click(), i: minimizeOrExpand};
-    if (actions[lower] && (playerModal || lower === 'i')) { event.preventDefault(); actions[lower](); return; }
-  }
+  if (playerModal && playerKey(event)) return;
+  if (playerDialog.open && !modalOpen && key.toLowerCase() === 'i') { event.preventDefault(); minimizeOrExpand(); return; }
   if (modalOpen) return;
   if (key === '/') { event.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); return; }
   if (/^[1-9]$/.test(key)) { event.preventDefault(); runHotbar(key); return; }
@@ -2103,7 +2531,7 @@ $('#playerLater').addEventListener('click', () => { if (activeVideoId) toggleLat
 $('#playerShare').addEventListener('click', () => { if (activeVideoId) copyText(shareURL(activeVideoId), 'Link to this video copied'); });
 $('#nextButton').addEventListener('click', () => { const current = getVideo(activeVideoId); const next = current && nextUp(current); if (next) openPlayer(next.id); });
 $('#playerClose').addEventListener('click', closePlayer);
-$('#theaterButton').addEventListener('click', () => { settings.theater = !settings.theater; saveSettings(); if (playerDialog.classList.contains('mini')) minimizeOrExpand(); else showPlayerDialog('modal'); });
+$('#theaterButton').addEventListener('click', toggleTheater);
 $('#miniButton').addEventListener('click', minimizeOrExpand);
 $('#bookmarkForm').addEventListener('submit', addBookmark);
 playerDialog.addEventListener('click', event => {
@@ -2112,6 +2540,8 @@ playerDialog.addEventListener('click', event => {
   if (target.dataset.seek !== undefined) { seekTo(Number(target.dataset.seek)); if (target.closest('#resumeNote')) $('#resumeNote').hidden = true; }
   else if (target.dataset.removeBookmark !== undefined) removeBookmark(Number(target.dataset.removeBookmark));
   else if (target.dataset.play) openPlayer(target.dataset.play);
+  else if (target.dataset.multi) openMulti(target.dataset.multi);
+  else if (target.dataset.rate) setRating(target.dataset.id, Number(target.dataset.rate));
   else if (target.id === 'loadComments') loadComments();
 });
 playerDialog.addEventListener('close', () => {
@@ -2715,6 +3145,302 @@ $('#announcement').addEventListener('click', event => {
 });
 document.querySelectorAll('.calendar-dialog, .vault-dialog, .install-dialog, .admin-dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
 
+/* ==========================================================================
+   Views: Videos (home) · Library (entered through an End portal) · Scene Finder
+   ========================================================================== */
+let currentView = 'home';
+const VIEW_IDS = {home: '#homeView', library: '#libraryView', scenes: '#sceneView'};
+function viewFromHash() { const hash = location.hash.replace(/^#\/?/, ''); return hash.startsWith('library') ? 'library' : hash.startsWith('scenes') ? 'scenes' : 'home'; }
+function showView(name) {
+  currentView = name;
+  for (const [key, selector] of Object.entries(VIEW_IDS)) $(selector).hidden = key !== name;
+  document.querySelectorAll('.top-tabs a').forEach(link => { if (link.dataset.view === name) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
+  document.body.dataset.view = name;
+  if (name === 'library') openLibrary();
+  if (name === 'scenes') openScenes();
+  window.scrollTo({top: 0, behavior: 'auto'});
+}
+function route() {
+  const name = viewFromHash();
+  if (name === currentView) return;
+  if (name === 'library' && currentView !== 'library' && canAnimate() && !reducedMotion.matches) playPortal(() => showView('library'));
+  else showView(name);
+}
+window.addEventListener('hashchange', route);
+document.querySelectorAll('.top-tabs a').forEach(link => link.addEventListener('click', event => {
+  if (link.dataset.view === currentView && link.dataset.view !== 'home') { event.preventDefault(); window.scrollTo({top: 0, behavior: 'smooth'}); }
+  if (link.dataset.view === 'home' && location.hash.replace(/^#\/?/, '') === '') { event.preventDefault(); showView('home'); }
+}));
+
+/* ---------- End portal transition ---------- */
+let portalRun = null;
+function portalSound() {
+  const bus = audio.bus();
+  if (!bus) return;
+  tone(bus, 0, 1.6, {from: 55, to: 110, gain: 0.35, attack: 0.3});
+  noise(bus, 0.1, 1.4, {filter: 'lowpass', from: 300, to: 2400, gain: 0.12, attack: 0.5});
+  [392, 523, 659, 784, 1046].forEach((frequency, index) => tone(bus, 0.8 + index * 0.06, 1.2, {type: 'triangle', from: frequency, gain: 0.05}));
+  setTimeout(() => bus.disconnect(), 3000);
+}
+function playPortal(done) {
+  const layer = $('#portalLayer');
+  const ring = $('#portalRing');
+  if (portalRun) portalRun.finish();
+  // 12 frame blocks around a 3x3 hole, each receiving an Eye of Ender.
+  const slots = [[1, 0], [2, 0], [3, 0], [4, 1], [4, 2], [4, 3], [3, 4], [2, 4], [1, 4], [0, 3], [0, 2], [0, 1]];
+  ring.innerHTML = slots.map(([x, y], index) => `<span class="frame" style="--x:${x};--y:${y};--i:${index}"><img src="${ITEM_ROOT}ender_eye.png" alt=""></span>`).join('');
+  layer.hidden = false;
+  layer.classList.remove('dive', 'reveal', 'lit');
+  void layer.offsetWidth;
+  layer.classList.add('show');
+  portalSound();
+  const timers = [];
+  const run = {
+    finish() {
+      timers.forEach(clearTimeout);
+      layer.classList.remove('show', 'dive', 'reveal', 'lit');
+      layer.hidden = true;
+      if (portalRun === run) portalRun = null;
+      document.removeEventListener('keydown', skip, true);
+      layer.removeEventListener('click', run.finish);
+      if (!run.done) { run.done = true; done(); }
+    }
+  };
+  const skip = event => { if (event.key === 'Escape') { event.preventDefault(); run.finish(); } };
+  portalRun = run;
+  document.addEventListener('keydown', skip, true);
+  layer.addEventListener('click', run.finish);
+  timers.push(setTimeout(() => layer.classList.add('lit'), 820));
+  timers.push(setTimeout(() => layer.classList.add('dive'), 1250));
+  timers.push(setTimeout(() => { if (!run.done) { run.done = true; done(); } layer.classList.add('reveal'); }, 1850));
+  timers.push(setTimeout(() => run.finish(), 2350));
+}
+
+/* ---------- Library ---------- */
+let libraryData = null;
+let libraryPromise = null;
+let libType = 'all';
+const LIB_TYPES = [['all', 'Everything'], ['event', 'Events'], ['item', 'Items'], ['character', 'Characters'], ['location', 'Places'], ['faction', 'Factions'], ['other', 'Other']];
+const TYPE_ICON = {event: 'clock_00.png', item: 'bundle.png', character: 'name_tag.png', location: 'filled_map.png', faction: 'white_banner.png', other: 'paper.png'};
+const NAME_ICONS = [[/mace/i, 'mace.png'], [/spyglass/i, 'spyglass.png'], [/totem/i, 'totem_of_undying.png'], [/netherite.*sword|sword/i, 'netherite_sword.png'], [/trident/i, 'trident.png'], [/crossbow/i, 'crossbow_standby.png'], [/\bbow\b/i, 'bow.png'], [/pickaxe/i, 'netherite_pickaxe.png'], [/axe/i, 'netherite_axe.png'], [/elytra/i, 'elytra.png'], [/helmet|crown/i, 'golden_helmet.png'], [/chestplate|armou?r/i, 'netherite_chestplate.png'], [/apple/i, 'enchanted_golden_apple.png'], [/pearl/i, 'ender_pearl.png'], [/\beye\b/i, 'ender_eye.png'], [/key/i, 'trial_key.png'], [/book|journal|tome/i, 'enchanted_book.png'], [/potion/i, 'potion.png'], [/star/i, 'nether_star.png'], [/crystal/i, 'end_crystal.png'], [/shard/i, 'echo_shard.png'], [/heart/i, 'heart_of_the_sea.png'], [/compass/i, 'compass_00.png'], [/map/i, 'filled_map.png'], [/clock/i, 'clock_00.png'], [/wind|breeze/i, 'wind_charge.png'], [/egg/i, 'egg.png'], [/diamond/i, 'diamond.png'], [/gold/i, 'gold_ingot.png']];
+function libraryIcon(title, type) {
+  for (const [pattern, file] of NAME_ICONS) if (pattern.test(title)) return ITEM_ROOT + file;
+  return ITEM_ROOT + (TYPE_ICON[type] || TYPE_ICON.other);
+}
+function loadLibrary(force = false) {
+  if (!libraryPromise || force) libraryPromise = fetch('/api/library', {cache: force ? 'no-store' : 'default'}).then(response => (response.ok ? response.json() : response.json().then(body => ({empty: true, error: body.error})).catch(() => ({empty: true})))).catch(() => ({empty: true, error: 'You appear to be offline.'})).then(data => { libraryData = data; return data; });
+  return libraryPromise;
+}
+const STOP = new Set('the and for with from that this into over when then than they them their there were was are has have had what where which while will would your you our his her its out off not but all any can get got one two new episode part video unstable universe smp minecraft season final finale vs'.split(' '));
+function tokens(text) { return [...new Set(String(text || '').toLowerCase().match(/[a-z0-9']{4,}/g) || [])].filter(word => !STOP.has(word)); }
+function relatedVideosFor(title, links = []) {
+  const words = tokens(`${title} ${links.slice(0, 6).join(' ')}`);
+  if (!words.length) return [];
+  return videos.map(video => {
+    const haystack = video.title.toLowerCase();
+    const hits = words.filter(word => haystack.includes(word));
+    return {video, score: hits.length + (hits.some(word => title.toLowerCase().includes(word)) ? 1 : 0)};
+  }).filter(entry => entry.score >= 2 || (entry.score >= 1 && words.length <= 2)).sort((a, b) => b.score - a.score || byDate(a.video) - byDate(b.video)).slice(0, 3).map(entry => entry.video);
+}
+function highlight(text, words) {
+  let safe = escapeHTML(text);
+  for (const word of words) if (word.length >= 2) safe = safe.replace(new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>');
+  return safe;
+}
+async function openLibrary() {
+  $('#libRefresh').hidden = !isAdmin;
+  if (!libraryData) { $('#libMain').innerHTML = '<div class="lib-loading"><span class="player-loading"><span></span></span>Opening the archive…</div>'; await loadLibrary(); }
+  renderLibraryView();
+}
+function pageByTitle(title) { return libraryData?.pages?.find(page => page.title.toLowerCase() === String(title).toLowerCase()); }
+function renderLibraryView() {
+  const data = libraryData || {empty: true};
+  const sourceUrl = data.source?.url || 'https://unstable-universe-mc.fandom.com/wiki/Unstable_Universe/History';
+  $('#libAttrib').innerHTML = `Text from the <a href="${escapeHTML(sourceUrl)}" target="_blank" rel="noreferrer">Unstable Universe Wiki</a> on Fandom, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a>. Reformatted for this site; each entry links to its source page. This is an unofficial fan site.${data.fetchedAt ? ` Last synced ${timeAgo(data.fetchedAt)}.` : ''}`;
+  if (data.empty) {
+    const reason = data.status?.error || data.error || '';
+    $('#libStats').textContent = 'The archive is empty right now.';
+    $('#libTypes').innerHTML = '';
+    $('#libToc').innerHTML = '';
+    $('#libMain').innerHTML = `<div class="empty-state lib-empty"><img src="${ITEM_ROOT}ender_eye.png" alt=""><h3>The library hasn't been filled yet.</h3><p>It copies the wiki's History page and the pages it links to. ${reason ? `Last attempt: <em>${escapeHTML(reason)}</em>.` : 'The first sync runs automatically.'}</p><a class="quiet-action" href="${escapeHTML(sourceUrl)}" target="_blank" rel="noreferrer">Read it on the wiki</a></div>`;
+    return;
+  }
+  const query = $('#libSearch').value.trim().toLowerCase();
+  const words = query.split(/\s+/).filter(Boolean);
+  const matchText = text => !words.length || words.every(word => text.toLowerCase().includes(word));
+  const events = data.sections.filter(section => section.blocks.length && matchText(`${section.title} ${section.path.join(' ')} ${section.blocks.map(block => block.text).join(' ')}`));
+  const pages = data.pages.filter(page => (libType === 'all' || page.type === libType) && matchText(`${page.title} ${page.summary} ${Object.values(page.fields).join(' ')}`));
+  const counts = Object.fromEntries(LIB_TYPES.map(([key]) => [key, key === 'all' ? data.pages.length + data.sections.filter(section => section.blocks.length).length : key === 'event' ? data.sections.filter(section => section.blocks.length).length + data.pages.filter(page => page.type === 'event').length : data.pages.filter(page => page.type === key).length]));
+  $('#libStats').textContent = `${data.sections.filter(section => section.blocks.length).length} history entries · ${data.pages.length} linked pages · wiki revision ${data.source.revid || '?'}`;
+  $('#libTypes').innerHTML = LIB_TYPES.filter(([key]) => counts[key] || key === 'all').map(([key, label]) => `<button type="button" class="side-chip ${libType === key ? 'active' : ''}" data-libtype="${key}" aria-pressed="${libType === key}">${label}<span class="chip-count">${counts[key]}</span></button>`).join('');
+  const eras = [];
+  for (const section of data.sections) {
+    const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
+    if (!eras.includes(era)) eras.push(era);
+  }
+  $('#libToc').innerHTML = `<p class="side-label">Contents</p>${eras.map(era => `<a href="#lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" data-libjump>${escapeHTML(era)}</a>`).join('')}${data.pages.length ? '<a href="#lib-pages" data-libjump>Items, people &amp; places</a>' : ''}`;
+  const showEvents = libType === 'all' || libType === 'event';
+  let html = '';
+  if (showEvents) {
+    let lastEra = '';
+    html += events.map(section => {
+      const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
+      const eraHeader = era !== lastEra && section.level !== 1 ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
+      lastEra = era;
+      if (section.level <= 2 && section.title === era && !section.blocks.length) return eraHeader;
+      const related = relatedVideosFor(section.title, section.links);
+      const linkChips = section.links.slice(0, 12).map(link => { const page = pageByTitle(link); return page ? `<button type="button" class="lib-link" data-libpage="${escapeHTML(page.title)}"><img src="${libraryIcon(page.title, page.type)}" alt="">${escapeHTML(page.title)}</button>` : ''; }).join('');
+      return `${eraHeader}<article class="lib-event lg" id="ev-${escapeHTML(section.id)}">
+        <p class="lib-path">${escapeHTML([...section.path].join(' › ') || 'History')}</p>
+        <h3>${highlight(section.title, words)}</h3>
+        <div class="lib-body">${section.blocks.map(block => block.type === 'li' ? `<p class="lib-li" style="--depth:${block.depth || 1}">${highlight(block.text, words)}</p>` : `<p>${highlight(block.text, words)}</p>`).join('')}</div>
+        ${linkChips ? `<div class="lib-links">${linkChips}</div>` : ''}
+        ${related.length ? `<div class="lib-related"><span class="side-note">Videos that may cover this</span>${related.map(video => `<button type="button" class="lib-vid" data-play="${video.id}"><img src="${thumbOf(video)}" alt="" loading="lazy"><span><strong>${escapeHTML(video.title)}</strong><small>${escapeHTML(video.creator)} · ${escapeHTML(video.date || '')}</small></span></button>`).join('')}</div>` : ''}
+        <a class="lib-source" href="${escapeHTML(section.url)}" target="_blank" rel="noreferrer">Read on the wiki ↗</a>
+      </article>`;
+    }).join('');
+  }
+  if (pages.length) {
+    html += `<h2 class="lib-era" id="lib-pages">Items, people &amp; places</h2><div class="lib-pages">${pages.map(page => `<button type="button" class="lib-card lg type-${page.type}" data-libpage="${escapeHTML(page.title)}"><span class="lib-card-icon"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><span class="lib-card-body"><span class="lib-type">${escapeHTML(LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Other')}</span><strong>${highlight(page.title, words)}</strong><span class="lib-summary">${highlight(page.summary.slice(0, 180), words)}${page.summary.length > 180 ? '…' : ''}</span></span></button>`).join('')}</div>`;
+  }
+  if (!html) html = `<div class="empty-state"><img src="${ITEM_ROOT}compass_00.png" alt=""><h3>Nothing in the library matches “${escapeHTML(query)}”.</h3><p>Try a character, item, or place name.</p></div>`;
+  $('#libMain').innerHTML = html;
+}
+function openLibraryPage(title) {
+  const page = pageByTitle(title);
+  if (!page) return;
+  const related = relatedVideosFor(page.title);
+  const mentions = libraryData.sections.filter(section => section.links.some(link => link.toLowerCase() === page.title.toLowerCase())).slice(0, 8);
+  const fields = Object.entries(page.fields);
+  $('#libPage').innerHTML = `<button class="close-button" data-close-dialog="libPage" aria-label="Close" type="button">×</button>
+    <div class="libp-head"><span class="lib-card-icon big"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><div><p class="eyebrow">${escapeHTML((LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Page').toUpperCase())}</p><h2 id="libPageTitle">${escapeHTML(page.title)}</h2></div></div>
+    <p class="libp-summary">${escapeHTML(page.summary)}</p>
+    ${fields.length ? `<dl class="ctx-grid">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>` : ''}
+    ${page.more.map(part => `<h3 class="pl-sub">${escapeHTML(part.title)}</h3><p class="libp-more">${escapeHTML(part.text)}${part.text.length >= 500 ? '…' : ''}</p>`).join('')}
+    ${mentions.length ? `<h3 class="pl-sub">Appears in the history</h3><div class="lib-links">${mentions.map(section => `<button type="button" class="lib-link" data-libevent="${escapeHTML(section.id)}">${escapeHTML(section.title)}</button>`).join('')}</div>` : ''}
+    ${related.length ? `<h3 class="pl-sub">Videos that may feature it</h3>${related.map(video => sideCard(video, video.creator)).join('')}` : ''}
+    <p class="lib-attrib small">From <a href="${escapeHTML(page.url)}" target="_blank" rel="noreferrer">${escapeHTML(page.title)} on the Unstable Universe Wiki</a>, CC BY-SA 3.0.</p>`;
+  $('#libPage').querySelector('[data-close-dialog]').addEventListener('click', () => $('#libPage').close());
+  if (!$('#libPage').open) $('#libPage').showModal();
+}
+function renderRelatedLibrary(video) {
+  const box = $('#railLibrary');
+  const render = () => {
+    if (!libraryData || libraryData.empty || activeVideoId !== video.id) { box.hidden = true; return; }
+    const words = tokens(video.title);
+    if (!words.length) { box.hidden = true; return; }
+    const scored = [
+      ...libraryData.sections.filter(section => section.blocks.length).map(section => ({kind: 'event', id: section.id, title: section.title, text: section.blocks.map(block => block.text).join(' ')})),
+      ...libraryData.pages.map(page => ({kind: 'page', id: page.title, title: page.title, text: page.summary, type: page.type}))
+    ].map(entry => ({...entry, score: words.filter(word => entry.title.toLowerCase().includes(word)).length * 2 + words.filter(word => entry.text.toLowerCase().includes(word)).length}))
+      .filter(entry => entry.score >= 2).sort((a, b) => b.score - a.score).slice(0, 4);
+    if (!scored.length) { box.hidden = true; return; }
+    box.innerHTML = `<div class="rail-head"><h3><img src="${ITEM_ROOT}enchanted_book.png" alt="">In the Library</h3><span class="side-note">Possible matches</span></div>${scored.map(entry => `<button type="button" class="rail-lib" ${entry.kind === 'page' ? `data-libpage="${escapeHTML(entry.id)}"` : `data-libevent="${escapeHTML(entry.id)}"`}><img src="${entry.kind === 'page' ? libraryIcon(entry.title, entry.type) : ITEM_ROOT + 'clock_00.png'}" alt=""><span><strong>${escapeHTML(entry.title)}</strong><small>${escapeHTML(entry.text.slice(0, 80))}…</small></span><b>→</b></button>`).join('')}`;
+    box.hidden = false;
+  };
+  if (libraryData) render(); else loadLibrary().then(render);
+}
+function jumpToLibraryEvent(id) {
+  const go = () => { const target = document.getElementById(`ev-${id}`); if (target) { target.scrollIntoView({behavior: 'smooth', block: 'start'}); target.classList.add('flash-panel'); } };
+  if ($('#playerDialog').open) $('#playerDialog').close();
+  if ($('#libPage').open) $('#libPage').close();
+  if (currentView !== 'library') { location.hash = '#/library'; setTimeout(go, 2100); } else go();
+}
+$('#libSearch').addEventListener('input', () => { clearTimeout(window.__libTimer); window.__libTimer = setTimeout(renderLibraryView, 150); });
+$('#libraryView').addEventListener('click', event => {
+  const type = event.target.closest('[data-libtype]');
+  if (type) { libType = type.dataset.libtype; renderLibraryView(); return; }
+  const page = event.target.closest('[data-libpage]');
+  if (page) { openLibraryPage(page.dataset.libpage); return; }
+  const play = event.target.closest('[data-play]');
+  if (play) { openPlayer(play.dataset.play); return; }
+  const jump = event.target.closest('[data-libjump]');
+  if (jump) { event.preventDefault(); document.querySelector(jump.getAttribute('href'))?.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+});
+$('#libPage').addEventListener('click', event => {
+  if (event.target === $('#libPage')) { $('#libPage').close(); return; }
+  const play = event.target.closest('[data-play]');
+  if (play) { $('#libPage').close(); openPlayer(play.dataset.play); return; }
+  const ev = event.target.closest('[data-libevent]');
+  if (ev) jumpToLibraryEvent(ev.dataset.libevent);
+});
+$('#railLibrary').addEventListener('click', event => {
+  const page = event.target.closest('[data-libpage]');
+  if (page) { openLibraryPage(page.dataset.libpage); return; }
+  const ev = event.target.closest('[data-libevent]');
+  if (ev) jumpToLibraryEvent(ev.dataset.libevent);
+});
+$('#libRefresh').addEventListener('click', async () => {
+  $('#libRefresh').disabled = true;
+  $('#libRefresh').textContent = 'Updating…';
+  const response = await fetch('/api/admin/library/refresh', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).catch(() => null);
+  const result = response ? await response.json().catch(() => ({})) : {};
+  toast(result.ok ? `Library updated: ${result.sections} entries, ${result.pages} pages.` : `Update failed: ${result.error || 'no response'}`);
+  $('#libRefresh').disabled = false;
+  $('#libRefresh').textContent = 'Update from wiki';
+  await loadLibrary(true);
+  renderLibraryView();
+});
+
+/* ---------- Scene Finder ---------- */
+let sceneSource = 'all';
+let sceneCreator = 'All';
+const SCENE_SOURCES = [['all', 'All moments'], ['chapter', 'Chapters'], ['comment', 'Community'], ['bookmark', 'My bookmarks']];
+async function openScenes() {
+  $('#sceneSources').innerHTML = SCENE_SOURCES.map(([key, label]) => `<button type="button" class="side-chip ${sceneSource === key ? 'active' : ''}" data-scenesource="${key}" aria-pressed="${sceneSource === key}">${label}</button>`).join('');
+  $('#sceneCreators').innerHTML = ['All', ...CREATORS].map(name => `<button type="button" class="side-chip ${sceneCreator === name ? 'active' : ''}" data-scenecreator="${name}" aria-pressed="${sceneCreator === name}" style="--row-rgb:${(themes[name] || themes.All).rgb}"><img src="${item(name)}" alt="">${name === 'All' ? 'All creators' : name}</button>`).join('');
+  if (!momentsData) { $('#sceneResults').innerHTML = '<div class="lib-loading"><span class="player-loading"><span></span></span>Loading moments…</div>'; await loadMoments(); }
+  renderScenes();
+}
+function allMoments() {
+  const list = [];
+  for (const video of videos) {
+    const indexed = momentsData?.videos?.[video.id]?.items || [];
+    const chapters = video.chapters?.length ? video.chapters.map(chapter => ({t: chapter.t, label: chapter.label, source: 'chapter'})) : indexed.filter(moment => moment.source === 'chapter');
+    for (const moment of [...chapters, ...indexed.filter(entry => entry.source === 'comment')]) list.push({...moment, video});
+    for (const mark of profile.bookmarks[video.id] || []) list.push({t: mark.t, label: mark.label || 'Your bookmark', source: 'bookmark', video});
+  }
+  return list;
+}
+function renderScenes() {
+  const indexed = Object.keys(momentsData?.videos || {}).length;
+  $('#sceneStatus').textContent = `${indexed} of ${videos.length} videos scanned for community timestamps${momentsData?.updatedAt ? ` · updated ${timeAgo(momentsData.updatedAt)}` : ''}. New videos are added every 30 minutes.`;
+  const query = $('#sceneSearch').value.trim().toLowerCase();
+  const words = query.split(/\s+/).filter(Boolean);
+  let list = allMoments().filter(moment => (sceneSource === 'all' || moment.source === sceneSource) && (sceneCreator === 'All' || moment.video.creator === sceneCreator));
+  if (words.length) {
+    list = list.map(moment => {
+      const text = moment.label.toLowerCase();
+      const title = moment.video.title.toLowerCase();
+      const hits = words.filter(word => text.includes(word)).length;
+      const titleHits = words.filter(word => title.includes(word) || moment.video.creator.toLowerCase().includes(word)).length;
+      return {moment, score: hits * 3 + titleHits + Math.log10((moment.likes || 0) + 1) * 0.6 + (moment.source === 'bookmark' ? 1 : 0)};
+    }).filter(entry => words.every(word => `${entry.moment.label} ${entry.moment.video.title} ${entry.moment.video.creator}`.toLowerCase().includes(word))).sort((a, b) => b.score - a.score).map(entry => entry.moment);
+  } else {
+    list = list.sort((a, b) => (b.source === 'bookmark') - (a.source === 'bookmark') || (b.likes || 0) - (a.likes || 0) || byDate(b.video) - byDate(a.video));
+  }
+  const total = list.length;
+  list = list.slice(0, 80);
+  if (!total) {
+    $('#sceneResults').innerHTML = `<div class="empty-state"><img src="${ITEM_ROOT}spyglass.png" alt=""><h3>${words.length ? `No moments match “${escapeHTML(query)}”.` : 'No moments here yet.'}</h3><p>${sceneSource === 'bookmark' ? 'Bookmark moments while you watch (press B) and they show up here.' : 'Community timestamps are collected from top YouTube comments as the index builds.'}</p></div>`;
+    return;
+  }
+  $('#sceneResults').innerHTML = `<p class="scene-count">${words.length ? `${total} moment${total === 1 ? '' : 's'} found` : 'Most-loved moments'}${total > 80 ? ' · showing the top 80' : ''}</p><div class="scene-grid">${list.map(moment => {
+    const theme = themes[moment.video.creator] || themes.Other;
+    const badge = moment.source === 'chapter' ? 'Chapter' : moment.source === 'bookmark' ? 'Your bookmark' : `♥ ${Number(moment.likes || 0).toLocaleString()}`;
+    return `<button type="button" class="scene-card lg" data-scene="${moment.video.id}" data-t="${moment.t}" data-label="${escapeHTML(moment.label.slice(0, 80))}" style="--card-rgb:${theme.rgb}"><span class="scene-thumb"><img src="${escapeHTML(frameFor(moment.video, moment.t))}" alt="" loading="lazy"><span class="scene-time">${formatSeconds(moment.t)}</span><span class="scene-play" aria-hidden="true"></span></span><span class="scene-body"><span class="scene-badge src-${moment.source}">${badge}</span><strong>${highlight(moment.label, words)}</strong><span class="shelf-creator"><img src="${item(moment.video.creator)}" alt="">${escapeHTML(moment.video.creator)} · ${escapeHTML(moment.video.date || '')}</span><span class="scene-video">${highlight(moment.video.title, words)}</span></span></button>`;
+  }).join('')}</div>`;
+}
+$('#sceneSearch').addEventListener('input', () => { clearTimeout(window.__sceneTimer); window.__sceneTimer = setTimeout(renderScenes, 120); });
+$('#sceneView').addEventListener('click', event => {
+  const source = event.target.closest('[data-scenesource]');
+  if (source) { sceneSource = source.dataset.scenesource; openScenes(); return; }
+  const creator = event.target.closest('[data-scenecreator]');
+  if (creator) { sceneCreator = creator.dataset.scenecreator; openScenes(); return; }
+  const card = event.target.closest('[data-scene]');
+  if (card) openPlayer(card.dataset.scene, {start: Number(card.dataset.t), label: card.dataset.label});
+});
+
 /* ---------- boot ---------- */
 allVideos = videos.filter(video => !video?.unavailable).map(enrich);
 videos = visibleOnly(allVideos);
@@ -2734,5 +3460,6 @@ else accountRequest('/me').then(result => { account.available = result.status !=
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').then(() => renderAppPanel()).catch(() => {});
 renderAppPanel();
 loadSiteConfig();
-checkAdmin();
+checkAdmin().then(() => { if (currentView === 'library') $('#libRefresh').hidden = !isAdmin; });
+if (viewFromHash() !== 'home') showView(viewFromHash());
 refreshPlaylist();
