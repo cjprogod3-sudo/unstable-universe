@@ -2,7 +2,7 @@
    App files are network-first (so deploys show up right away) with an offline
    fallback; images are cached; push messages carry no payload, so the worker
    asks the site what's new and shows that. */
-const VERSION = 'uux-v1';
+const VERSION = 'uux-v2';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/badge-96.png', '/icons/favicon-32.png'];
 const IMAGE_CACHE = `${VERSION}-images`;
 const IMAGE_LIMIT = 400;
