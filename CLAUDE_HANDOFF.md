@@ -92,6 +92,13 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - `classify` now trusts exact category roots and character-style infobox fields first, so a page in both "Characters" and "Items" counts as a character.
 - Infobox fields drop technical keys (title1, image1, 3d, caption…) and image values; bullet lists become `a · b · c`, shown as tags. URLs become links, values matching a wiki page open that page, and full video titles (Debut, Latest appearance) become play buttons.
 
+## Round 9: fullscreen + pop out (Claude, Nov 2026)
+
+- **Fullscreen** uses the Fullscreen API on `#vstage` (with `navigationUI: 'hide'` and a landscape lock where allowed). Where element fullscreen isn't allowed (iPhone, some Home Screen apps) or the request fails, a CSS fullscreen (`.player-dialog.fake-full`) turns the dialog itself into a 100vw × 100dvh black screen with safe-area padding; Esc/close exits it. Theater mode's height cap no longer applies in fullscreen.
+- **Pop out (P)**: Chrome/Edge desktop use Document Picture-in-Picture (a floating window with a plain embed starting at the current second; progress isn't tracked while popped out). Safari and Android switch to YouTube's own player (`settings.nativePlayer`), whose fullscreen view offers the system PiP; a note offers "Switch back to our controls". iOS Home Screen apps can't do PiP (WebKit limitation), so a dialog offers "Open in Safari at m:ss" (`/?v=ID&t=SECONDS`) or the YouTube app.
+- **Touch**: when the controls have faded, the first tap on the video only reveals them; the next tap toggles play.
+- Deep links accept `&t=SECONDS`.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |

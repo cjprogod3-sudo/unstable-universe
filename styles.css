@@ -1390,3 +1390,19 @@ mark { padding: 0 2px; border-radius: 4px; background: rgba(125, 252, 216, .3); 
 .fact-video:hover { background: rgba(125, 252, 216, .16); }
 .fact-video img { width: 56px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
 .lib-link.small { padding: 2px 8px; font-size: 12px; }
+
+/* ---------- Round 9: true fullscreen + pop out ---------- */
+.vstage:fullscreen, .vstage:-webkit-full-screen, .vstage.is-full { width: 100% !important; height: 100% !important; max-height: none !important; max-width: none !important; margin: 0 !important; aspect-ratio: auto !important; border-radius: 0 !important; box-shadow: none !important; background: #000; }
+.vstage:fullscreen .vcontrols, .vstage.is-full .vcontrols { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+/* CSS fullscreen (iPhone, Home Screen apps): the dialog itself becomes the whole screen. */
+html.fake-full-lock, html.fake-full-lock body { overflow: hidden; }
+.player-dialog.fake-full { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh; height: 100dvh; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: #000 !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; overflow: hidden !important; }
+.player-dialog.fake-full::backdrop { background: #000; }
+.player-dialog.fake-full:before, .player-dialog.fake-full:after { display: none !important; }
+.player-dialog.fake-full .pl-head, .player-dialog.fake-full .player-rail, .player-dialog.fake-full .pl-tabs, .player-dialog.fake-full .pl-panel, .player-dialog.fake-full .resume-note, .player-dialog.fake-full #vstage2 { display: none !important; }
+.player-dialog.fake-full .player-layout, .player-dialog.fake-full .player-main, .player-dialog.fake-full .pl-stages { display: block; width: 100%; height: 100%; margin: 0; }
+.player-dialog.fake-full .vstage { position: fixed; inset: 0; width: 100vw !important; height: 100vh !important; height: 100dvh !important; }
+@media (max-width: 520px) { #vPop { display: inline-grid; } }
+.player-dialog.mini #vPop { display: inline-grid; }
+#popoutBody .profile-actions { margin-top: 16px; }
+#popoutBody a.primary-action, #popoutBody a.quiet-action { text-decoration: none; display: inline-block; }
