@@ -86,6 +86,19 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - **Player redesign**: custom controls over the official embed (`controls=0`) with play/pause, next, ±10s, volume, time, current chapter, bookmark, captions, a speed menu, mini, theater and fullscreen. The scrubber has a hover tooltip and chapter/bookmark markers. Keyboard: K/space, J/L, arrows, M, F, T, I, V, N, B, C, `,`/`.`, S (favorite), W (watch later), 0–9. Tabs: Perspectives (with side-by-side Multi-View and play/pause/seek sync), Moments, Timeline, Context (full description via `/api/video`, clickable timestamps), Notes (`profile.notes`, synced), Comments. The rail holds the episode card, chapters with frame thumbnails (YouTube's auto frames 1/2/3, approximate), up next, and "In the Library" matches. If the IFrame API fails, the native embed is used and the custom controls are hidden.
 - **Not built**: a per-video player map (no location data exists) and an Items tab per video (the wiki doesn't map items to episodes).
 
+## Round 8 fix: Library parsing (Claude, Nov 2026)
+
+- The live wiki's History page isn't built with plain `== headings ==` (the first sync produced 1 section, and its 23 pages came only from categories). The History page is now read with `action=parse` (rendered HTML: templates, tabs and transcluded sub-pages already expanded) and parsed by `parseHtmlSections`. That handles h2–h5, TabberNeue/legacy tab panels (as top-level eras), `dl/dt` pseudo-headings, wikitables (one row = one entry) and lists, and strips infoboxes, navboxes, refs, the TOC and edit links. Linked pages come from the parse `links` list plus Characters/Items/Weapons/Locations/Events/Factions categories (up to 150 pages).
+- `classify` now trusts exact category roots and character-style infobox fields first, so a page in both "Characters" and "Items" counts as a character.
+- Infobox fields drop technical keys (title1, image1, 3d, caption…) and image values; bullet lists become `a · b · c`, shown as tags. URLs become links, values matching a wiki page open that page, and full video titles (Debut, Latest appearance) become play buttons.
+
+## Round 9: fullscreen + pop out (Claude, Nov 2026)
+
+- **Fullscreen** uses the Fullscreen API on `#vstage` (with `navigationUI: 'hide'` and a landscape lock where allowed). Where element fullscreen isn't allowed (iPhone, some Home Screen apps) or the request fails, a CSS fullscreen (`.player-dialog.fake-full`) turns the dialog itself into a 100vw × 100dvh black screen with safe-area padding; Esc/close exits it. Theater mode's height cap no longer applies in fullscreen.
+- **Pop out (P)**: Chrome/Edge desktop use Document Picture-in-Picture (a floating window with a plain embed starting at the current second; progress isn't tracked while popped out). Safari and Android switch to YouTube's own player (`settings.nativePlayer`), whose fullscreen view offers the system PiP; a note offers "Switch back to our controls". iOS Home Screen apps can't do PiP (WebKit limitation), so a dialog offers "Open in Safari at m:ss" (`/?v=ID&t=SECONDS`) or the YouTube app.
+- **Touch**: when the controls have faded, the first tap on the video only reveals them; the next tap toggles play.
+- Deep links accept `&t=SECONDS`.
+
 ### Storage keys (do not rename)
 
 | Key | Contents |

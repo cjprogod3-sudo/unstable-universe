@@ -226,6 +226,7 @@
                 <button class="v-btn" id="vBookmark" type="button" aria-label="Bookmark this moment (B)"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
                 <button class="v-btn v-text" id="vCC" type="button" aria-pressed="false" aria-label="Captions (C)">CC</button>
                 <div class="v-menu-wrap"><button class="v-btn" id="vSettings" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Playback settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.4z"/><circle cx="12" cy="12" r="3" class="hole"/></svg></button><div class="v-menu lg" id="vMenu" hidden></div></div>
+                <button class="v-btn" id="vPop" type="button" aria-label="Pop out into a floating window (P)" title="Pop out (P)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" class="stroke"/><path d="M13 13h8v8h-8z"/><path d="M15 9l-4 4M11 9h0" class="stroke"/></svg></button>
                 <button class="v-btn" id="vMini" type="button" aria-label="Mini player (I)"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" class="stroke"/><rect x="12" y="12" width="7" height="5" rx="1"/></svg></button>
                 <button class="v-btn" id="vTheater" type="button" aria-label="Theater mode (T)"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2" class="stroke"/></svg></button>
                 <button class="v-btn" id="vFull" type="button" aria-label="Full screen (F)"><svg class="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" class="stroke"/></svg><svg class="i-exit" viewBox="0 0 24 24"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" class="stroke"/></svg></button>
@@ -316,7 +317,7 @@
       <div><dt><kbd>J</kbd> <kbd>L</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>Player: back / forward 10s and 5s</dd></div>
       <div><dt><kbd>↑</kbd> <kbd>↓</kbd> <kbd>M</kbd></dt><dd>Player: volume and mute</dd></div>
       <div><dt><kbd>F</kbd> <kbd>T</kbd> <kbd>I</kbd> <kbd>V</kbd></dt><dd>Player: full screen, theater, mini player, multi-view</dd></div>
-      <div><dt><kbd>N</kbd> <kbd>B</kbd> <kbd>C</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>Player: next, bookmark, captions, slower / faster</dd></div>
+      <div><dt><kbd>N</kbd> <kbd>B</kbd> <kbd>C</kbd> <kbd>P</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>Player: next, bookmark, captions, pop out, slower / faster</dd></div>
       <div><dt><kbd>S</kbd> <kbd>W</kbd> <kbd>0</kbd>–<kbd>9</kbd></dt><dd>Player: favorite, watch later, jump to 0–90%</dd></div>
     </dl>
   </dialog>
@@ -347,6 +348,12 @@
       <li>Scroll down and tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
       <li>Open <strong>Unstable UX</strong> from your Home Screen. To get new-upload alerts, turn them on from the app.</li>
     </ol>
+  </dialog>
+
+  <dialog class="install-dialog" id="popoutDialog" aria-labelledby="popoutTitle">
+    <button class="close-button" data-close-dialog="popoutDialog" aria-label="Close" type="button">×</button>
+    <p class="eyebrow">POP OUT</p><h2 id="popoutTitle">Keep watching in a floating window.</h2>
+    <div id="popoutBody"></div>
   </dialog>
 
   <dialog class="admin-dialog" id="adminDialog" aria-labelledby="adminTitle">

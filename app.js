@@ -107,6 +107,7 @@ function normalizeSettings(raw) {
     videoVolume: clamp(Number.isFinite(Number(source.videoVolume)) ? Number(source.videoVolume) : 80, 0, 100),
     videoMuted: Boolean(source.videoMuted),
     captions: Boolean(source.captions),
+    nativePlayer: Boolean(source.nativePlayer),
     speed: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(Number(source.speed)) ? Number(source.speed) : 1
   };
 }
@@ -132,6 +133,7 @@ let youtubeLoader = null;
 let appliedTheme = '';
 let appliedIcon = '';
 let pendingVideoFromURL = '';
+let pendingStartFromURL = 0;
 let suppressCloseTeardown = false;
 let unavailableCount = 0;
 
@@ -1048,6 +1050,8 @@ function readURL() {
   if (filters.creator !== 'All') filters.creator = filters.creator === 'Other' ? 'Other' : (CREATORS.find(name => name.toLowerCase() === filters.creator.toLowerCase()) || 'All');
   const video = params.get('v');
   if (video && /^[\w-]{11}$/.test(video)) pendingVideoFromURL = video;
+  const startParam = parseInt(params.get('t') || '', 10);
+  if (Number.isFinite(startParam) && startParam > 0) pendingStartFromURL = startParam;
   return params.has('creator');
 }
 function shareURL(videoId) {
@@ -1271,7 +1275,8 @@ function tryOpenPendingVideo() {
   if (!pendingVideoFromURL || !getVideo(pendingVideoFromURL)) return;
   const id = pendingVideoFromURL;
   pendingVideoFromURL = '';
-  openPlayer(id);
+  openPlayer(id, pendingStartFromURL ? {start: pendingStartFromURL} : {});
+  pendingStartFromURL = 0;
 }
 
 /* ==========================================================================
@@ -1629,11 +1634,95 @@ function toggleMenu(force) {
   stage.classList.toggle('menu-open', open);
 }
 function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+/* Fullscreen: real Fullscreen API where the browser allows it on an element (desktop,
+   Android, iPad); otherwise (iPhone, some Home Screen apps) a CSS fullscreen that fills
+   the whole viewport, including the safe areas. */
+function lockLandscape() { try { screen.orientation?.lock?.('landscape')?.catch?.(() => {}); } catch { /* not allowed */ } }
+function enterFakeFullscreen() {
+  playerDialog.classList.add('fake-full');
+  stage.classList.add('is-full');
+  document.documentElement.classList.add('fake-full-lock');
+  lockLandscape();
+  wake();
+}
+function exitFakeFullscreen() {
+  playerDialog.classList.remove('fake-full');
+  stage.classList.remove('is-full');
+  document.documentElement.classList.remove('fake-full-lock');
+  try { screen.orientation?.unlock?.(); } catch { /* ignore */ }
+}
 function toggleFullscreen() {
+  if (playerDialog.classList.contains('fake-full')) { exitFakeFullscreen(); return; }
   if (fullscreenElement()) { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); return; }
+  if (playerDialog.classList.contains('mini')) minimizeOrExpand();
   const request = stage.requestFullscreen || stage.webkitRequestFullscreen;
-  if (request) request.call(stage).catch?.(() => toggleTheater());
-  else toggleTheater();
+  const enabled = document.fullscreenEnabled ?? document.webkitFullscreenEnabled;
+  if (request && enabled !== false) {
+    try {
+      const result = request.call(stage, {navigationUI: 'hide'});
+      if (result?.then) result.then(lockLandscape).catch(enterFakeFullscreen);
+      else setTimeout(() => { if (!fullscreenElement()) enterFakeFullscreen(); else lockLandscape(); }, 250);
+      return;
+    } catch { /* fall through */ }
+  }
+  enterFakeFullscreen();
+}
+playerDialog.addEventListener('cancel', event => { if (playerDialog.classList.contains('fake-full')) { event.preventDefault(); exitFakeFullscreen(); } });
+
+/* Pop out: a floating window that keeps playing outside the page, where the platform allows. */
+const canDocumentPip = () => 'documentPictureInPicture' in window;
+let pipWindow = null;
+async function popOut() {
+  const video = getVideo(activeVideoId);
+  if (!video) return;
+  const t = Math.floor(youtubePlayer?.getCurrentTime?.() || progressFor(video.id).seconds || 0);
+  recordPlayerProgress();
+  if (canDocumentPip()) {
+    try {
+      pipWindow?.close();
+      pipWindow = await window.documentPictureInPicture.requestWindow({width: 480, height: 270});
+      const doc = pipWindow.document;
+      doc.title = video.title;
+      doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+      const frame = doc.createElement('iframe');
+      frame.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?autoplay=1&rel=0&playsinline=1&start=${t}`;
+      frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      frame.style.cssText = 'border:0;width:100vw;height:100vh;display:block';
+      doc.body.append(frame);
+      youtubePlayer?.pauseVideo?.();
+      toast('Popped out. The floating window stays on top of other apps.');
+      pipWindow.addEventListener('pagehide', () => { pipWindow = null; });
+      return;
+    } catch { /* fall back below */ }
+  }
+  if (isIOS() && isStandalone()) { showPopOutHelp(video, t, 'standalone'); return; }
+  // Safari / Android: switch to YouTube's own player, whose fullscreen view supports
+  // the system picture-in-picture window.
+  if (fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+  exitFakeFullscreen();
+  settings.nativePlayer = true;
+  saveSettings();
+  teardownPlayer();
+  openPlayer(video.id, {start: t, popout: true});
+}
+function showPopOutHelp(video, t, mode) {
+  const link = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}&t=${t}s`;
+  const site = `${location.origin}/?v=${encodeURIComponent(video.id)}&t=${t}`;
+  $('#popoutBody').innerHTML = mode === 'standalone'
+    ? `<p class="dialog-copy">Apple doesn't allow picture-in-picture in apps added to the Home Screen yet, so the video can't float from here.</p>
+       <ol class="install-steps"><li><strong>Open in Safari</strong>, tap <strong>Pop out</strong> there, then tap YouTube's full-screen button and the picture-in-picture button (or swipe home).</li><li>Or open it in the <strong>YouTube app</strong> at the same moment.</li></ol>
+       <div class="profile-actions"><a class="primary-action" href="${escapeHTML(site)}" target="_blank" rel="noopener">Open in Safari at ${formatSeconds(t)}</a><a class="quiet-action" href="${escapeHTML(link)}" target="_blank" rel="noopener">Open in YouTube</a></div>`
+    : '';
+  $('#popoutDialog').showModal();
+}
+function useOurControls() {
+  const video = getVideo(activeVideoId);
+  settings.nativePlayer = false;
+  saveSettings();
+  if (!video) return;
+  const t = Math.floor(youtubePlayer?.getCurrentTime?.() || 0);
+  teardownPlayer();
+  openPlayer(video.id, {start: t});
 }
 function toggleTheater() { settings.theater = !settings.theater; saveSettings(); if (playerDialog.classList.contains('mini')) minimizeOrExpand(); else showPlayerDialog('modal'); }
 ['fullscreenchange', 'webkitfullscreenchange'].forEach(type => document.addEventListener(type, () => stage.classList.toggle('is-full', Boolean(fullscreenElement()))));
@@ -1668,9 +1757,15 @@ $('#vScrub').addEventListener('keydown', event => {
   else if (event.key === 'Home') { event.preventDefault(); seekTo(0); }
   else if (event.key === 'End') { event.preventDefault(); seekTo(Math.max(0, currentDuration - 2)); }
 });
-stage.addEventListener('pointermove', wake);
-stage.addEventListener('pointerdown', wake);
-$('#vHit').addEventListener('click', () => { if (!$('#vMenu').hidden) { toggleMenu(false); return; } togglePlay(); });
+stage.addEventListener('pointermove', event => { if (event.pointerType === 'mouse') wake(); });
+// Touch: when the controls are hidden, the first tap only brings them back (like YouTube).
+let tapRevealed = false;
+stage.addEventListener('pointerdown', event => { tapRevealed = event.pointerType !== 'mouse' && stage.classList.contains('idle'); wake(); }, true);
+$('#vHit').addEventListener('click', () => {
+  if (tapRevealed) { tapRevealed = false; return; }
+  if (!$('#vMenu').hidden) { toggleMenu(false); return; }
+  togglePlay();
+});
 $('#vHit').addEventListener('dblclick', toggleFullscreen);
 $('#vPlay').addEventListener('click', togglePlay);
 $('#vBack').addEventListener('click', () => seekBy(-10));
@@ -1691,6 +1786,8 @@ $('#vBookmark').addEventListener('click', () => addBookmark());
 $('#vMini').addEventListener('click', () => minimizeOrExpand());
 $('#vTheater').addEventListener('click', toggleTheater);
 $('#vFull').addEventListener('click', toggleFullscreen);
+$('#vPop').addEventListener('click', popOut);
+$('#resumeNote').addEventListener('click', event => { if (event.target.closest('[data-own-controls]')) useOurControls(); });
 document.querySelectorAll('[data-ptab]').forEach(tab => tab.addEventListener('click', () => setPanel(tab.dataset.ptab)));
 $('#notesInput').addEventListener('input', () => { clearTimeout(notesTimer); $('#notesStatus').textContent = 'Saving…'; notesTimer = setTimeout(saveNotes, 600); });
 $('#notesStamp').addEventListener('click', () => {
@@ -1758,6 +1855,7 @@ function teardownPlayer() {
   closeMulti();
   toggleMenu(false);
   if (fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+  exitFakeFullscreen();
   try { youtubePlayer?.destroy(); } catch { /* player may already be gone */ }
   youtubePlayer = null;
   currentDuration = 0;
@@ -1857,13 +1955,20 @@ async function openPlayer(id, options = {}) {
     youtubePlayer = new YT.Player('youtubePlayer', {
       videoId: id,
       host: 'https://www.youtube-nocookie.com',
-      playerVars: {autoplay: 1, rel: 0, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, cc_load_policy: settings.captions ? 1 : 0, origin: location.origin},
+      playerVars: settings.nativePlayer
+        ? {autoplay: 1, rel: 0, playsinline: 1, controls: 1, fs: 1, iv_load_policy: 3, modestbranding: 1, origin: location.origin}
+        : {autoplay: 1, rel: 0, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, cc_load_policy: settings.captions ? 1 : 0, origin: location.origin},
       events: {
         onReady: event => {
           if (activeVideoId !== id) return;
           const saved = progressFor(id);
           currentDuration = event.target.getDuration() || currentDuration;
-          if (playerOptions.start >= 0) {
+          stage.classList.toggle('native', Boolean(settings.nativePlayer));
+          if (settings.nativePlayer) {
+            if (playerOptions.start >= 0) event.target.seekTo(playerOptions.start, true);
+            $('#resumeNote').innerHTML = `${playerOptions.popout ? '<strong>Ready to pop out.</strong> Tap YouTube’s full-screen button ⛶ in the video, then its picture-in-picture button (or swipe home) to keep watching in a floating window. ' : 'You’re using YouTube’s own player controls. '}<button class="text-button" type="button" data-own-controls>Switch back to our controls</button>`;
+            $('#resumeNote').hidden = false;
+          } else if (playerOptions.start >= 0) {
             event.target.seekTo(playerOptions.start, true);
             $('#resumeNote').innerHTML = `Jumped to <strong>${formatSeconds(playerOptions.start)}</strong>${playerOptions.label ? `: ${escapeHTML(playerOptions.label)}` : ''}. <button class="text-button" type="button" data-seek="0">Watch from the start</button>`;
             $('#resumeNote').hidden = false;
@@ -1960,7 +2065,7 @@ function playerKey(event) {
     ArrowUp: () => setVideoVolume(settings.videoVolume + 5), ArrowDown: () => setVideoVolume(settings.videoVolume - 5), m: toggleMute,
     f: toggleFullscreen, t: toggleTheater, i: minimizeOrExpand, v: () => (secondPlayer ? closeMulti() : openMulti()), n: () => $('#nextButton').click(),
     b: () => addBookmark(), c: () => setCaptions(!settings.captions), ',': () => stepSpeed(-1), '.': () => stepSpeed(1), '<': () => stepSpeed(-1), '>': () => stepSpeed(1),
-    s: () => toggleFavorite(activeVideoId), w: () => toggleLater(activeVideoId)
+    s: () => toggleFavorite(activeVideoId), w: () => toggleLater(activeVideoId), p: popOut
   };
   if (/^[0-9]$/.test(key) && currentDuration) { event.preventDefault(); seekTo(currentDuration * Number(key) / 10); return true; }
   const action = actions[lower];
@@ -3275,7 +3380,7 @@ function renderLibraryView() {
   $('#libTypes').innerHTML = LIB_TYPES.filter(([key]) => counts[key] || key === 'all').map(([key, label]) => `<button type="button" class="side-chip ${libType === key ? 'active' : ''}" data-libtype="${key}" aria-pressed="${libType === key}">${label}<span class="chip-count">${counts[key]}</span></button>`).join('');
   const eras = [];
   for (const section of data.sections) {
-    const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
+    const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
     if (!eras.includes(era)) eras.push(era);
   }
   $('#libToc').innerHTML = `<p class="side-label">Contents</p>${eras.map(era => `<a href="#lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" data-libjump>${escapeHTML(era)}</a>`).join('')}${data.pages.length ? '<a href="#lib-pages" data-libjump>Items, people &amp; places</a>' : ''}`;
@@ -3284,10 +3389,10 @@ function renderLibraryView() {
   if (showEvents) {
     let lastEra = '';
     html += events.map(section => {
-      const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
-      const eraHeader = era !== lastEra && section.level !== 1 ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
+      const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
+      const eraHeader = era !== lastEra && section.id !== 'intro' ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
       lastEra = era;
-      if (section.level <= 2 && section.title === era && !section.blocks.length) return eraHeader;
+      if (section.title === era && !section.blocks.length) return eraHeader;
       const related = relatedVideosFor(section.title, section.links);
       const linkChips = section.links.slice(0, 12).map(link => { const page = pageByTitle(link); return page ? `<button type="button" class="lib-link" data-libpage="${escapeHTML(page.title)}"><img src="${libraryIcon(page.title, page.type)}" alt="">${escapeHTML(page.title)}</button>` : ''; }).join('');
       return `${eraHeader}<article class="lib-event lg" id="ev-${escapeHTML(section.id)}">
@@ -3306,6 +3411,29 @@ function renderLibraryView() {
   if (!html) html = `<div class="empty-state"><img src="${ITEM_ROOT}compass_00.png" alt=""><h3>Nothing in the library matches “${escapeHTML(query)}”.</h3><p>Try a character, item, or place name.</p></div>`;
   $('#libMain').innerHTML = html;
 }
+const normalizeTitleText = text => String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9']+/g, ' ').trim();
+function videoByTitle(text) {
+  const wanted = normalizeTitleText(text);
+  if (wanted.length < 6) return null;
+  const exact = videos.find(video => normalizeTitleText(video.title) === wanted);
+  if (exact) return exact;
+  // Only long, multi-word titles may match inside a longer video title.
+  if (wanted.length < 16 || wanted.split(' ').length < 3) return null;
+  return videos.find(video => normalizeTitleText(video.title).includes(wanted)) || null;
+}
+// Infobox values: lists become tags, URLs become links, video titles become play buttons.
+function factValue(value) {
+  const parts = String(value).split(' · ').map(part => part.trim()).filter(Boolean);
+  const one = part => {
+    if (/^https:\/\/\S+$/.test(part)) return `<a href="${escapeHTML(part)}" target="_blank" rel="noreferrer">${escapeHTML(part.replace(/^https:\/\/(www\.)?/, '').replace(/\/$/, ''))} ↗</a>`;
+    const page = pageByTitle(part);
+    if (page) return `<button type="button" class="lib-link small" data-libpage="${escapeHTML(page.title)}">${escapeHTML(part)}</button>`;
+    const video = videoByTitle(part);
+    if (video) return `<button type="button" class="fact-video" data-play="${video.id}"><img src="${thumbOf(video)}" alt="">${escapeHTML(part)}</button>`;
+    return escapeHTML(part);
+  };
+  return parts.length > 1 ? `<span class="fact-tags">${parts.map(part => `<span class="fact-tag">${one(part)}</span>`).join('')}</span>` : one(parts[0] || '');
+}
 function openLibraryPage(title) {
   const page = pageByTitle(title);
   if (!page) return;
@@ -3315,7 +3443,7 @@ function openLibraryPage(title) {
   $('#libPage').innerHTML = `<button class="close-button" data-close-dialog="libPage" aria-label="Close" type="button">×</button>
     <div class="libp-head"><span class="lib-card-icon big"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><div><p class="eyebrow">${escapeHTML((LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Page').toUpperCase())}</p><h2 id="libPageTitle">${escapeHTML(page.title)}</h2></div></div>
     <p class="libp-summary">${escapeHTML(page.summary)}</p>
-    ${fields.length ? `<dl class="ctx-grid">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>` : ''}
+    ${fields.length ? `<dl class="lib-facts">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${factValue(value)}</dd></div>`).join('')}</dl>` : ''}
     ${page.more.map(part => `<h3 class="pl-sub">${escapeHTML(part.title)}</h3><p class="libp-more">${escapeHTML(part.text)}${part.text.length >= 500 ? '…' : ''}</p>`).join('')}
     ${mentions.length ? `<h3 class="pl-sub">Appears in the history</h3><div class="lib-links">${mentions.map(section => `<button type="button" class="lib-link" data-libevent="${escapeHTML(section.id)}">${escapeHTML(section.title)}</button>`).join('')}</div>` : ''}
     ${related.length ? `<h3 class="pl-sub">Videos that may feature it</h3>${related.map(video => sideCard(video, video.creator)).join('')}` : ''}
@@ -3362,7 +3490,9 @@ $('#libPage').addEventListener('click', event => {
   const play = event.target.closest('[data-play]');
   if (play) { $('#libPage').close(); openPlayer(play.dataset.play); return; }
   const ev = event.target.closest('[data-libevent]');
-  if (ev) jumpToLibraryEvent(ev.dataset.libevent);
+  if (ev) { jumpToLibraryEvent(ev.dataset.libevent); return; }
+  const linked = event.target.closest('[data-libpage]');
+  if (linked) openLibraryPage(linked.dataset.libpage);
 });
 $('#railLibrary').addEventListener('click', event => {
   const page = event.target.closest('[data-libpage]');

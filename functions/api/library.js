@@ -10,8 +10,8 @@ import { ensureSchema, json, sameOrigin, currentUser } from './account.js';
 
 export const WIKI_ORIGIN = 'https://unstable-universe-mc.fandom.com';
 export const HISTORY_PAGE = 'Unstable_Universe/History';
-const EXTRA_CATEGORIES = ['Category:Items', 'Category:Weapons'];
-const MAX_LINKED_PAGES = 100;
+const EXTRA_CATEGORIES = ['Category:Characters', 'Category:Items', 'Category:Weapons', 'Category:Locations', 'Category:Events', 'Category:Factions'];
+const MAX_LINKED_PAGES = 150;
 const USER_AGENT = 'UnstableUniverseExperience/1.0 (unofficial fan site; library sync; contact via site admin)';
 const LIBRARY_KEY = 'library';
 const REFRESH_EVERY_MS = 24 * 3600 * 1000;
@@ -157,21 +157,33 @@ export function infoboxFields(wikitext) {
     const eq = part.indexOf('=');
     if (eq < 1) continue;
     const key = part.slice(0, eq).trim().toLowerCase();
-    if (!key || /^(image|caption|title|imagewidth|image_size|align|width|name)$/.test(key)) continue;
-    const value = plainText(part.slice(eq + 1)).replace(/\s+/g, ' ').trim();
-    if (value && value.length <= 200) fields[key.replace(/_/g, ' ')] = value;
+    if (!key || /^(image|caption|title|imagewidth|image_size|align|width|name|3d|render|skin|model|gallery|size|color|colour|theme|border|bg|header|type\d+)\d*$/.test(key) || /image|caption|_?file$/.test(key)) continue;
+    const rawValue = part.slice(eq + 1);
+    const items = rawValue.split(/\n\s*[*#]+\s*|<br\s*\/?>/i).map(entry => plainText(entry).replace(/^[*#\s]+/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const value = items.join(' · ');
+    if (!value || value.length > 260 || /\.(png|jpe?g|gif|webp|svg)$/i.test(value)) continue;
+    fields[key.replace(/_/g, ' ')] = value;
     if (Object.keys(fields).length >= 10) break;
   }
   return fields;
 }
-export function classify(title, categories, wikitext) {
-  const haystack = `${categories.join(' ')} ${(String(wikitext).match(/\{\{\s*([^|}\n]+)/) || [])[1] || ''}`.toLowerCase();
-  if (/item|weapon|armou?r|artifact|artefact|tool|enchant|relic|mace|sword|totem/.test(haystack)) return 'item';
-  if (/character|player|people|member|villain|protagonist|antagonist/.test(haystack)) return 'character';
-  if (/location|place|base|structure|build|city|town|island|dimension|vault/.test(haystack)) return 'location';
-  if (/event|battle|war|arc|conflict|history|season|episode/.test(haystack)) return 'event';
-  if (/faction|group|organi[sz]ation|nation|empire|mafia|team|alliance/.test(haystack)) return 'faction';
-  if (/^(the )?(battle|war|siege|trial|fall|attack) /i.test(title)) return 'event';
+const CHARACTER_FIELDS = /^(pronouns|alias|aliases|status|enemies|allies|affiliation|debut|latest appearance|channel|occupation|gender|species|relatives|nickname)$/;
+export function classify(title, categories, wikitext, fields = {}) {
+  const cats = categories.map(category => category.toLowerCase());
+  const has = pattern => cats.some(category => pattern.test(category));
+  const template = ((String(wikitext).match(/\{\{\s*([^|}\n]+)/) || [])[1] || '').toLowerCase();
+  const characterFields = Object.keys(fields).filter(key => CHARACTER_FIELDS.test(key)).length;
+  if (has(/^characters?(\/|$)/) || /character|player/.test(template) || characterFields >= 2) return 'character';
+  if (has(/^(locations?|places?|bases?|structures?|builds?|cities|towns)(\/|$)/) || /location|place|base/.test(template)) return 'location';
+  if (has(/^(factions?|groups?|organi[sz]ations?|nations?|empires?|alliances?)(\/|$)/) || /faction|group|nation/.test(template)) return 'faction';
+  if (has(/^(events?|battles?|wars?|arcs?|conflicts?|history)(\/|$)/) || /event|battle|war/.test(template)) return 'event';
+  if (has(/^(items?|weapons?|armou?r|artifacts?|artefacts?|tools?|mechanics?)(\/|$)/) || /item|weapon|armou?r/.test(template)) return 'item';
+  const haystack = `${cats.join(' ')} ${template}`;
+  if (/character|player|antagonist|protagonist|creator/.test(haystack)) return 'character';
+  if (/item|weapon|armou?r|artifact|tool|enchant|relic/.test(haystack)) return 'item';
+  if (/location|place|base|structure|city|town|island|dimension|vault/.test(haystack)) return 'location';
+  if (/faction|group|organi[sz]ation|nation|empire|mafia|alliance/.test(haystack)) return 'faction';
+  if (/event|battle|war|arc|conflict|season|episode/.test(haystack) || /^(the )?(battle|war|siege|trial|fall|attack) /i.test(title)) return 'event';
   return 'other';
 }
 export function pageSummary(wikitext) {
@@ -181,6 +193,71 @@ export function pageSummary(wikitext) {
   const summary = paragraphs.join(' ').slice(0, 700);
   const more = sections.filter(section => section.id !== 'intro').slice(0, 6).map(section => ({title: section.title, text: section.blocks.map(block => block.text).join(' ').slice(0, 500)})).filter(section => section.text);
   return {summary, more};
+}
+
+
+/* ---------- rendered HTML → sections (handles templates, tabs, transclusions) ---------- */
+const NOISE = [
+  /<style[\s\S]*?<\/style>/gi, /<script[\s\S]*?<\/script>/gi, /<!--[\s\S]*?-->/g,
+  /<span class="mw-editsection[\s\S]*?<\/span>\s*<\/span>/gi, /<span class="mw-editsection[\s\S]*?<\/span>/gi,
+  /<sup[^>]*class="[^"]*reference[^"]*"[\s\S]*?<\/sup>/gi, /<ol class="references[\s\S]*?<\/ol>/gi,
+  /<div[^>]*class="[^"]*(?:toc|navbox|noprint|mw-references-wrap)[^"]*"[\s\S]*?<\/div>/gi,
+  /<aside[\s\S]*?<\/aside>/gi, /<figure[\s\S]*?<\/figure>/gi, /<figcaption[\s\S]*?<\/figcaption>/gi,
+  /<table[^>]*class="[^"]*(?:navbox|infobox|toc|metadata|ambox|nowraplinks)[^"]*"[\s\S]*?<\/table>/gi
+];
+const textOf = html => decodeEntities(String(html).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')).replace(/\[\s*edit\s*\]/gi, '').replace(/\s+/g, ' ').trim();
+function linksInHtml(html) {
+  const found = [];
+  const pattern = /<a\b[^>]*href="\/wiki\/([^"#?]+)[^"]*"[^>]*>/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    let title = '';
+    try { title = normalizeTitle(decodeURIComponent(match[1])); } catch { title = normalizeTitle(match[1]); }
+    if (title && !SKIP_NAMESPACES.test(title)) found.push(title);
+  }
+  return found;
+}
+export function parseHtmlSections(rawHtml) {
+  let html = String(rawHtml || '');
+  for (const pattern of NOISE) html = html.replace(pattern, '');
+  const sections = [];
+  const stack = [];
+  const used = new Map();
+  let current = {id: 'intro', title: 'Overview', level: 1, path: [], blocks: [], links: []};
+  const open = (title, level) => {
+    if (current.blocks.length || current.level > 1) sections.push(current);
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+    let id = slug(title);
+    const count = used.get(id) || 0;
+    used.set(id, count + 1);
+    if (count) id = `${id}-${count + 1}`;
+    current = {id, title, level, path: stack.map(entry => entry.title), blocks: [], links: []};
+    stack.push({level, title});
+  };
+  const token = /<h([2-5])\b[^>]*>([\s\S]*?)<\/h\1>|(<(?:article|div)\b[^>]*class="[^"]*(?:tabber__panel|wds-tab__content|tabbertab)[^"]*"[^>]*>)|<p\b[^>]*>([\s\S]*?)<\/p>|<li\b[^>]*>([\s\S]*?)<\/li>|<dt\b[^>]*>([\s\S]*?)<\/dt>|<dd\b[^>]*>([\s\S]*?)<\/dd>|<tr\b[^>]*>([\s\S]*?)<\/tr>|<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi;
+  let match;
+  while ((match = token.exec(html))) {
+    const [, hLevel, hText, tabTag, p, li, dt, dd, tr, quote] = match;
+    const tabTitle = tabTag ? ((tabTag.match(/data-(?:mw-tabber-title|title)="([^"]*)"/) || tabTag.match(/\stitle="([^"]*)"/) || tabTag.match(/id="tabber-([^"]+)"/) || [])[1] || '').replace(/_/g, ' ') : undefined;
+    if (hLevel) { const title = textOf(hText); if (title) open(title, Number(hLevel)); continue; }
+    if (tabTitle !== undefined) { const title = textOf(tabTitle); if (title) { open(title, 1); current.tab = true; } continue; }
+    if (dt) { const title = textOf(dt); if (title && title.length < 90) open(title, Math.max(3, (stack[stack.length - 1]?.level || 2) + 1)); continue; }
+    const body = p ?? li ?? dd ?? quote ?? '';
+    if (tr) {
+      const cells = [...tr.matchAll(/<t([dh])\b[^>]*>([\s\S]*?)<\/t\1>/gi)];
+      if (!cells.length || cells.every(cell => cell[1].toLowerCase() === 'h')) continue;
+      const text = cells.map(cell => textOf(cell[2])).filter(Boolean).join(' — ');
+      if (text.length > 2) { current.blocks.push({type: 'li', text: text.slice(0, 800), depth: 1}); current.links.push(...linksInHtml(tr)); }
+      continue;
+    }
+    const text = textOf(body);
+    if (!text || text.length < 2) continue;
+    current.blocks.push(li ? {type: 'li', text: text.slice(0, 800), depth: 1} : {type: 'p', text: text.slice(0, 1600)});
+    current.links.push(...linksInHtml(body));
+  }
+  if (current.blocks.length || current.level > 1) sections.push(current);
+  for (const section of sections) section.links = [...new Set(section.links)].slice(0, 40);
+  return sections.filter(section => section.blocks.length || sections.some(other => other.path.includes(section.title)));
 }
 
 /* ---------- MediaWiki API ---------- */
@@ -207,15 +284,23 @@ async function fetchPages(titles) {
 export const pageUrl = title => `${WIKI_ORIGIN}/wiki/${encodeURIComponent(title.replace(/ /g, '_')).replace(/%2F/g, '/')}`;
 
 export async function buildLibrary() {
-  const [history] = await fetchPages([HISTORY_PAGE]);
-  if (!history) throw Object.assign(new Error(`The page "${HISTORY_PAGE}" was not found on the wiki.`), {status: 404});
-  const sections = parseSections(history.content);
+  // Ask the wiki for the RENDERED page: templates, tabs and transcluded sub-pages are
+  // already expanded, so this works however the History page is built.
+  const parsed = (await wikiApi({action: 'parse', page: HISTORY_PAGE, prop: 'text|links|revid|displaytitle', redirects: '1', disableeditsection: '1', disablelimitreport: '1'})).parse;
+  if (!parsed) throw Object.assign(new Error(`The page "${HISTORY_PAGE}" was not found on the wiki.`), {status: 404});
+  const html = typeof parsed.text === 'string' ? parsed.text : parsed.text?.['*'] || '';
+  const history = {revid: parsed.revid, timestamp: new Date().toISOString(), title: parsed.title};
+  const sections = parseHtmlSections(html);
   const mentions = new Map();
+  for (const link of parsed.links || []) {
+    const title = normalizeTitle(link.title || link['*']);
+    if (title && (link.ns ?? 0) === 0 && link.exists !== false && !mentions.has(title)) mentions.set(title, 0);
+  }
   for (const section of sections) for (const link of section.links) mentions.set(link, (mentions.get(link) || 0) + 1);
   for (const category of EXTRA_CATEGORIES) {
     try {
       const data = await wikiApi({action: 'query', list: 'categorymembers', cmtitle: category, cmlimit: '100', cmnamespace: '0'});
-      for (const member of data.query?.categorymembers || []) if (!mentions.has(member.title)) mentions.set(member.title, 0);
+      for (const member of data.query?.categorymembers || []) if (!mentions.has(member.title)) mentions.set(member.title, -1);
     } catch { /* the category may not exist on this wiki */ }
   }
   const wanted = [...mentions.entries()].sort((a, b) => b[1] - a[1]).map(([title]) => title).filter(title => title !== normalizeTitle(HISTORY_PAGE)).slice(0, MAX_LINKED_PAGES);
@@ -226,10 +311,11 @@ export async function buildLibrary() {
   const seen = new Set();
   const records = pages.filter(page => !/^#redirect/i.test(page.content) && !seen.has(page.title) && seen.add(page.title)).map(page => {
     const {summary, more} = pageSummary(page.content);
-    return {title: page.title, type: classify(page.title, page.categories, page.content), summary, more, fields: infoboxFields(page.content), categories: page.categories.slice(0, 8), url: pageUrl(page.title), updated: page.timestamp, mentions: mentions.get(page.title) || 0};
+    const fields = infoboxFields(page.content);
+    return {title: page.title, type: classify(page.title, page.categories, page.content, fields), summary, more, fields, categories: page.categories.slice(0, 8), url: pageUrl(page.title), updated: page.timestamp, mentions: mentions.get(page.title) || 0};
   }).filter(page => page.summary || Object.keys(page.fields).length);
   const library = {
-    source: {site: WIKI_ORIGIN, page: HISTORY_PAGE, url: pageUrl(HISTORY_PAGE), revid: history.revid, updated: history.timestamp},
+    source: {site: WIKI_ORIGIN, page: HISTORY_PAGE, url: pageUrl(HISTORY_PAGE), revid: history.revid, updated: history.timestamp, htmlChars: html.length},
     license: {name: 'CC BY-SA 3.0', url: 'https://creativecommons.org/licenses/by-sa/3.0/'},
     fetchedAt: Date.now(),
     sections: sections.map(section => ({...section, url: `${pageUrl(HISTORY_PAGE)}#${encodeURIComponent(section.title.replace(/ /g, '_'))}`})),
