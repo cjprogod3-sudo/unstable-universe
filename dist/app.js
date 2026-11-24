@@ -3393,11 +3393,11 @@ function showView(name) {
   document.body.dataset.view = name;
   if (name === 'library') openLibrary();
   if (name === 'scenes') openScenes();
-  window.scrollTo({top: 0, behavior: 'auto'});
+  if (name !== 'library') window.scrollTo({top: 0, behavior: 'auto'});
 }
 function route() {
   const name = viewFromHash();
-  if (name === currentView) return;
+  if (name === currentView) { if (name === 'library') libraryRoute(); return; }
   if (name === 'library' && currentView !== 'library' && canAnimate() && !reducedMotion.matches) playPortal(() => showView('library'));
   else showView(name);
 }
@@ -3407,240 +3407,12 @@ document.querySelectorAll('.top-tabs a').forEach(link => link.addEventListener('
   if (link.dataset.view === 'home' && location.hash.replace(/^#\/?/, '') === '') { event.preventDefault(); showView('home'); }
 }));
 
-/* ---------- End portal transition ---------- */
-let portalRun = null;
-function portalSound() {
-  const bus = audio.bus();
-  if (!bus) return;
-  tone(bus, 0, 1.6, {from: 55, to: 110, gain: 0.35, attack: 0.3});
-  noise(bus, 0.1, 1.4, {filter: 'lowpass', from: 300, to: 2400, gain: 0.12, attack: 0.5});
-  [392, 523, 659, 784, 1046].forEach((frequency, index) => tone(bus, 0.8 + index * 0.06, 1.2, {type: 'triangle', from: frequency, gain: 0.05}));
-  setTimeout(() => bus.disconnect(), 3000);
-}
-function playPortal(done) {
-  const layer = $('#portalLayer');
-  const ring = $('#portalRing');
-  if (portalRun) portalRun.finish();
-  // 12 frame blocks around a 3x3 hole, each receiving an Eye of Ender.
-  const slots = [[1, 0], [2, 0], [3, 0], [4, 1], [4, 2], [4, 3], [3, 4], [2, 4], [1, 4], [0, 3], [0, 2], [0, 1]];
-  ring.innerHTML = slots.map(([x, y], index) => `<span class="frame" style="--x:${x};--y:${y};--i:${index}"><img src="${ITEM_ROOT}ender_eye.png" alt=""></span>`).join('');
-  layer.hidden = false;
-  layer.classList.remove('dive', 'reveal', 'lit');
-  void layer.offsetWidth;
-  layer.classList.add('show');
-  portalSound();
-  const timers = [];
-  const run = {
-    finish() {
-      timers.forEach(clearTimeout);
-      layer.classList.remove('show', 'dive', 'reveal', 'lit');
-      layer.hidden = true;
-      if (portalRun === run) portalRun = null;
-      document.removeEventListener('keydown', skip, true);
-      layer.removeEventListener('click', run.finish);
-      if (!run.done) { run.done = true; done(); }
-    }
-  };
-  const skip = event => { if (event.key === 'Escape') { event.preventDefault(); run.finish(); } };
-  portalRun = run;
-  document.addEventListener('keydown', skip, true);
-  layer.addEventListener('click', run.finish);
-  timers.push(setTimeout(() => layer.classList.add('lit'), 820));
-  timers.push(setTimeout(() => layer.classList.add('dive'), 1250));
-  timers.push(setTimeout(() => { if (!run.done) { run.done = true; done(); } layer.classList.add('reveal'); }, 1850));
-  timers.push(setTimeout(() => run.finish(), 2350));
-}
-
-/* ---------- Library ---------- */
-let libraryData = null;
-let libraryPromise = null;
-let libType = 'all';
-const LIB_TYPES = [['all', 'Everything'], ['event', 'Events'], ['item', 'Items'], ['character', 'Characters'], ['location', 'Places'], ['faction', 'Factions'], ['other', 'Other']];
-const TYPE_ICON = {event: 'clock_00.png', item: 'bundle.png', character: 'name_tag.png', location: 'filled_map.png', faction: 'white_banner.png', other: 'paper.png'};
-const NAME_ICONS = [[/mace/i, 'mace.png'], [/spyglass/i, 'spyglass.png'], [/totem/i, 'totem_of_undying.png'], [/netherite.*sword|sword/i, 'netherite_sword.png'], [/trident/i, 'trident.png'], [/crossbow/i, 'crossbow_standby.png'], [/\bbow\b/i, 'bow.png'], [/pickaxe/i, 'netherite_pickaxe.png'], [/axe/i, 'netherite_axe.png'], [/elytra/i, 'elytra.png'], [/helmet|crown/i, 'golden_helmet.png'], [/chestplate|armou?r/i, 'netherite_chestplate.png'], [/apple/i, 'enchanted_golden_apple.png'], [/pearl/i, 'ender_pearl.png'], [/\beye\b/i, 'ender_eye.png'], [/key/i, 'trial_key.png'], [/book|journal|tome/i, 'enchanted_book.png'], [/potion/i, 'potion.png'], [/star/i, 'nether_star.png'], [/crystal/i, 'end_crystal.png'], [/shard/i, 'echo_shard.png'], [/heart/i, 'heart_of_the_sea.png'], [/compass/i, 'compass_00.png'], [/map/i, 'filled_map.png'], [/clock/i, 'clock_00.png'], [/wind|breeze/i, 'wind_charge.png'], [/egg/i, 'egg.png'], [/diamond/i, 'diamond.png'], [/gold/i, 'gold_ingot.png']];
-function libraryIcon(title, type) {
-  for (const [pattern, file] of NAME_ICONS) if (pattern.test(title)) return ITEM_ROOT + file;
-  return ITEM_ROOT + (TYPE_ICON[type] || TYPE_ICON.other);
-}
-function loadLibrary(force = false) {
-  if (!libraryPromise || force) libraryPromise = fetch('/api/library', {cache: force ? 'no-store' : 'default'}).then(response => (response.ok ? response.json() : response.json().then(body => ({empty: true, error: body.error})).catch(() => ({empty: true})))).catch(() => ({empty: true, error: 'You appear to be offline.'})).then(data => { libraryData = data; return data; });
-  return libraryPromise;
-}
-const STOP = new Set('the and for with from that this into over when then than they them their there were was are has have had what where which while will would your you our his her its out off not but all any can get got one two new episode part video unstable universe smp minecraft season final finale vs'.split(' '));
-function tokens(text) { return [...new Set(String(text || '').toLowerCase().match(/[a-z0-9']{4,}/g) || [])].filter(word => !STOP.has(word)); }
-function relatedVideosFor(title, links = []) {
-  const words = tokens(`${title} ${links.slice(0, 6).join(' ')}`);
-  if (!words.length) return [];
-  return videos.map(video => {
-    const haystack = video.title.toLowerCase();
-    const hits = words.filter(word => haystack.includes(word));
-    return {video, score: hits.length + (hits.some(word => title.toLowerCase().includes(word)) ? 1 : 0)};
-  }).filter(entry => entry.score >= 2 || (entry.score >= 1 && words.length <= 2)).sort((a, b) => b.score - a.score || byDate(a.video) - byDate(b.video)).slice(0, 3).map(entry => entry.video);
-}
+/* The End portal and the Library live in library.js. */
 function highlight(text, words) {
   let safe = escapeHTML(text);
   for (const word of words) if (word.length >= 2) safe = safe.replace(new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>');
   return safe;
 }
-async function openLibrary() {
-  $('#libRefresh').hidden = !isAdmin;
-  if (!libraryData) { $('#libMain').innerHTML = '<div class="lib-loading"><span class="player-loading"><span></span></span>Opening the archive…</div>'; await loadLibrary(); }
-  renderLibraryView();
-}
-function pageByTitle(title) { return libraryData?.pages?.find(page => page.title.toLowerCase() === String(title).toLowerCase()); }
-function renderLibraryView() {
-  const data = libraryData || {empty: true};
-  const sourceUrl = data.source?.url || 'https://unstable-universe-mc.fandom.com/wiki/Unstable_Universe/History';
-  $('#libAttrib').innerHTML = `Text from the <a href="${escapeHTML(sourceUrl)}" target="_blank" rel="noreferrer">Unstable Universe Wiki</a> on Fandom, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a>. Reformatted for this site; each entry links to its source page. This is an unofficial fan site.${data.fetchedAt ? ` Last synced ${timeAgo(data.fetchedAt)}.` : ''}`;
-  if (data.empty) {
-    const reason = data.status?.error || data.error || '';
-    $('#libStats').textContent = 'The archive is empty right now.';
-    $('#libTypes').innerHTML = '';
-    $('#libToc').innerHTML = '';
-    $('#libMain').innerHTML = `<div class="empty-state lib-empty"><img src="${ITEM_ROOT}ender_eye.png" alt=""><h3>The library hasn't been filled yet.</h3><p>It copies the wiki's History page and the pages it links to. ${reason ? `Last attempt: <em>${escapeHTML(reason)}</em>.` : 'The first sync runs automatically.'}</p><a class="quiet-action" href="${escapeHTML(sourceUrl)}" target="_blank" rel="noreferrer">Read it on the wiki</a></div>`;
-    return;
-  }
-  const query = $('#libSearch').value.trim().toLowerCase();
-  const words = query.split(/\s+/).filter(Boolean);
-  const matchText = text => !words.length || words.every(word => text.toLowerCase().includes(word));
-  const events = data.sections.filter(section => section.blocks.length && matchText(`${section.title} ${section.path.join(' ')} ${section.blocks.map(block => block.text).join(' ')}`));
-  const pages = data.pages.filter(page => (libType === 'all' || page.type === libType) && matchText(`${page.title} ${page.summary} ${Object.values(page.fields).join(' ')}`));
-  const counts = Object.fromEntries(LIB_TYPES.map(([key]) => [key, key === 'all' ? data.pages.length + data.sections.filter(section => section.blocks.length).length : key === 'event' ? data.sections.filter(section => section.blocks.length).length + data.pages.filter(page => page.type === 'event').length : data.pages.filter(page => page.type === key).length]));
-  $('#libStats').textContent = `${data.sections.filter(section => section.blocks.length).length} history entries · ${data.pages.length} linked pages · wiki revision ${data.source.revid || '?'}`;
-  $('#libTypes').innerHTML = LIB_TYPES.filter(([key]) => counts[key] || key === 'all').map(([key, label]) => `<button type="button" class="side-chip ${libType === key ? 'active' : ''}" data-libtype="${key}" aria-pressed="${libType === key}">${label}<span class="chip-count">${counts[key]}</span></button>`).join('');
-  const eras = [];
-  for (const section of data.sections) {
-    const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
-    if (!eras.includes(era)) eras.push(era);
-  }
-  $('#libToc').innerHTML = `<p class="side-label">Contents</p>${eras.map(era => `<a href="#lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" data-libjump>${escapeHTML(era)}</a>`).join('')}${data.pages.length ? '<a href="#lib-pages" data-libjump>Items, people &amp; places</a>' : ''}`;
-  const showEvents = libType === 'all' || libType === 'event';
-  let html = '';
-  if (showEvents) {
-    let lastEra = '';
-    html += events.map(section => {
-      const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
-      const eraHeader = era !== lastEra && section.id !== 'intro' ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
-      lastEra = era;
-      if (section.title === era && !section.blocks.length) return eraHeader;
-      const related = relatedVideosFor(section.title, section.links);
-      const linkChips = section.links.slice(0, 12).map(link => { const page = pageByTitle(link); return page ? `<button type="button" class="lib-link" data-libpage="${escapeHTML(page.title)}"><img src="${libraryIcon(page.title, page.type)}" alt="">${escapeHTML(page.title)}</button>` : ''; }).join('');
-      return `${eraHeader}<article class="lib-event lg" id="ev-${escapeHTML(section.id)}">
-        <p class="lib-path">${escapeHTML([...section.path].join(' › ') || 'History')}</p>
-        <h3>${highlight(section.title, words)}</h3>
-        <div class="lib-body">${section.blocks.map(block => block.type === 'li' ? `<p class="lib-li" style="--depth:${block.depth || 1}">${highlight(block.text, words)}</p>` : `<p>${highlight(block.text, words)}</p>`).join('')}</div>
-        ${linkChips ? `<div class="lib-links">${linkChips}</div>` : ''}
-        ${related.length ? `<div class="lib-related"><span class="side-note">Videos that may cover this</span>${related.map(video => `<button type="button" class="lib-vid" data-play="${video.id}"><img src="${thumbOf(video)}" alt="" loading="lazy"><span><strong>${escapeHTML(video.title)}</strong><small>${escapeHTML(video.creator)} · ${escapeHTML(video.date || '')}</small></span></button>`).join('')}</div>` : ''}
-        <a class="lib-source" href="${escapeHTML(section.url)}" target="_blank" rel="noreferrer">Read on the wiki ↗</a>
-      </article>`;
-    }).join('');
-  }
-  if (pages.length) {
-    html += `<h2 class="lib-era" id="lib-pages">Items, people &amp; places</h2><div class="lib-pages">${pages.map(page => `<button type="button" class="lib-card lg type-${page.type}" data-libpage="${escapeHTML(page.title)}"><span class="lib-card-icon"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><span class="lib-card-body"><span class="lib-type">${escapeHTML(LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Other')}</span><strong>${highlight(page.title, words)}</strong><span class="lib-summary">${highlight(page.summary.slice(0, 180), words)}${page.summary.length > 180 ? '…' : ''}</span></span></button>`).join('')}</div>`;
-  }
-  if (!html) html = `<div class="empty-state"><img src="${ITEM_ROOT}compass_00.png" alt=""><h3>Nothing in the library matches “${escapeHTML(query)}”.</h3><p>Try a character, item, or place name.</p></div>`;
-  $('#libMain').innerHTML = html;
-}
-const normalizeTitleText = text => String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9']+/g, ' ').trim();
-function videoByTitle(text) {
-  const wanted = normalizeTitleText(text);
-  if (wanted.length < 6) return null;
-  const exact = videos.find(video => normalizeTitleText(video.title) === wanted);
-  if (exact) return exact;
-  // Only long, multi-word titles may match inside a longer video title.
-  if (wanted.length < 16 || wanted.split(' ').length < 3) return null;
-  return videos.find(video => normalizeTitleText(video.title).includes(wanted)) || null;
-}
-// Infobox values: lists become tags, URLs become links, video titles become play buttons.
-function factValue(value) {
-  const parts = String(value).split(' · ').map(part => part.trim()).filter(Boolean);
-  const one = part => {
-    if (/^https:\/\/\S+$/.test(part)) return `<a href="${escapeHTML(part)}" target="_blank" rel="noreferrer">${escapeHTML(part.replace(/^https:\/\/(www\.)?/, '').replace(/\/$/, ''))} ↗</a>`;
-    const page = pageByTitle(part);
-    if (page) return `<button type="button" class="lib-link small" data-libpage="${escapeHTML(page.title)}">${escapeHTML(part)}</button>`;
-    const video = videoByTitle(part);
-    if (video) return `<button type="button" class="fact-video" data-play="${video.id}"><img src="${thumbOf(video)}" alt="">${escapeHTML(part)}</button>`;
-    return escapeHTML(part);
-  };
-  return parts.length > 1 ? `<span class="fact-tags">${parts.map(part => `<span class="fact-tag">${one(part)}</span>`).join('')}</span>` : one(parts[0] || '');
-}
-function openLibraryPage(title) {
-  const page = pageByTitle(title);
-  if (!page) return;
-  const related = relatedVideosFor(page.title);
-  const mentions = libraryData.sections.filter(section => section.links.some(link => link.toLowerCase() === page.title.toLowerCase())).slice(0, 8);
-  const fields = Object.entries(page.fields);
-  $('#libPage').innerHTML = `<button class="close-button" data-close-dialog="libPage" aria-label="Close" type="button">×</button>
-    <div class="libp-head"><span class="lib-card-icon big"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><div><p class="eyebrow">${escapeHTML((LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Page').toUpperCase())}</p><h2 id="libPageTitle">${escapeHTML(page.title)}</h2></div></div>
-    <p class="libp-summary">${escapeHTML(page.summary)}</p>
-    ${fields.length ? `<dl class="lib-facts">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${factValue(value)}</dd></div>`).join('')}</dl>` : ''}
-    ${page.more.map(part => `<h3 class="pl-sub">${escapeHTML(part.title)}</h3><p class="libp-more">${escapeHTML(part.text)}${part.text.length >= 500 ? '…' : ''}</p>`).join('')}
-    ${mentions.length ? `<h3 class="pl-sub">Appears in the history</h3><div class="lib-links">${mentions.map(section => `<button type="button" class="lib-link" data-libevent="${escapeHTML(section.id)}">${escapeHTML(section.title)}</button>`).join('')}</div>` : ''}
-    ${related.length ? `<h3 class="pl-sub">Videos that may feature it</h3>${related.map(video => sideCard(video, video.creator)).join('')}` : ''}
-    <p class="lib-attrib small">From <a href="${escapeHTML(page.url)}" target="_blank" rel="noreferrer">${escapeHTML(page.title)} on the Unstable Universe Wiki</a>, CC BY-SA 3.0.</p>`;
-  $('#libPage').querySelector('[data-close-dialog]').addEventListener('click', () => $('#libPage').close());
-  if (!$('#libPage').open) $('#libPage').showModal();
-}
-function renderRelatedLibrary(video) {
-  const box = $('#railLibrary');
-  const render = () => {
-    if (!libraryData || libraryData.empty || activeVideoId !== video.id) { box.hidden = true; return; }
-    const words = tokens(video.title);
-    if (!words.length) { box.hidden = true; return; }
-    const scored = [
-      ...libraryData.sections.filter(section => section.blocks.length).map(section => ({kind: 'event', id: section.id, title: section.title, text: section.blocks.map(block => block.text).join(' ')})),
-      ...libraryData.pages.map(page => ({kind: 'page', id: page.title, title: page.title, text: page.summary, type: page.type}))
-    ].map(entry => ({...entry, score: words.filter(word => entry.title.toLowerCase().includes(word)).length * 2 + words.filter(word => entry.text.toLowerCase().includes(word)).length}))
-      .filter(entry => entry.score >= 2).sort((a, b) => b.score - a.score).slice(0, 4);
-    if (!scored.length) { box.hidden = true; return; }
-    box.innerHTML = `<div class="rail-head"><h3><img src="${ITEM_ROOT}enchanted_book.png" alt="">In the Library</h3><span class="side-note">Possible matches</span></div>${scored.map(entry => `<button type="button" class="rail-lib" ${entry.kind === 'page' ? `data-libpage="${escapeHTML(entry.id)}"` : `data-libevent="${escapeHTML(entry.id)}"`}><img src="${entry.kind === 'page' ? libraryIcon(entry.title, entry.type) : ITEM_ROOT + 'clock_00.png'}" alt=""><span><strong>${escapeHTML(entry.title)}</strong><small>${escapeHTML(entry.text.slice(0, 80))}…</small></span><b>→</b></button>`).join('')}`;
-    box.hidden = false;
-  };
-  if (libraryData) render(); else loadLibrary().then(render);
-}
-function jumpToLibraryEvent(id) {
-  const go = () => { const target = document.getElementById(`ev-${id}`); if (target) { target.scrollIntoView({behavior: 'smooth', block: 'start'}); target.classList.add('flash-panel'); } };
-  if ($('#playerDialog').open) $('#playerDialog').close();
-  if ($('#libPage').open) $('#libPage').close();
-  if (currentView !== 'library') { location.hash = '#/library'; setTimeout(go, 2100); } else go();
-}
-$('#libSearch').addEventListener('input', () => { clearTimeout(window.__libTimer); window.__libTimer = setTimeout(renderLibraryView, 150); });
-$('#libraryView').addEventListener('click', event => {
-  const type = event.target.closest('[data-libtype]');
-  if (type) { libType = type.dataset.libtype; renderLibraryView(); return; }
-  const page = event.target.closest('[data-libpage]');
-  if (page) { openLibraryPage(page.dataset.libpage); return; }
-  const play = event.target.closest('[data-play]');
-  if (play) { openPlayer(play.dataset.play); return; }
-  const jump = event.target.closest('[data-libjump]');
-  if (jump) { event.preventDefault(); document.querySelector(jump.getAttribute('href'))?.scrollIntoView({behavior: 'smooth', block: 'start'}); }
-});
-$('#libPage').addEventListener('click', event => {
-  if (event.target === $('#libPage')) { $('#libPage').close(); return; }
-  const play = event.target.closest('[data-play]');
-  if (play) { $('#libPage').close(); openPlayer(play.dataset.play); return; }
-  const ev = event.target.closest('[data-libevent]');
-  if (ev) { jumpToLibraryEvent(ev.dataset.libevent); return; }
-  const linked = event.target.closest('[data-libpage]');
-  if (linked) openLibraryPage(linked.dataset.libpage);
-});
-$('#railLibrary').addEventListener('click', event => {
-  const page = event.target.closest('[data-libpage]');
-  if (page) { openLibraryPage(page.dataset.libpage); return; }
-  const ev = event.target.closest('[data-libevent]');
-  if (ev) jumpToLibraryEvent(ev.dataset.libevent);
-});
-$('#libRefresh').addEventListener('click', async () => {
-  $('#libRefresh').disabled = true;
-  $('#libRefresh').textContent = 'Updating…';
-  const response = await fetch('/api/admin/library/refresh', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).catch(() => null);
-  const result = response ? await response.json().catch(() => ({})) : {};
-  toast(result.ok ? `Library updated: ${result.sections} entries, ${result.pages} pages.` : `Update failed: ${result.error || 'no response'}`);
-  $('#libRefresh').disabled = false;
-  $('#libRefresh').textContent = 'Update from wiki';
-  await loadLibrary(true);
-  renderLibraryView();
-});
 
 /* ---------- Scene Finder ---------- */
 let sceneSource = 'all';
@@ -3720,6 +3492,7 @@ else accountRequest('/me').then(result => { account.available = result.status !=
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').then(() => renderAppPanel()).catch(() => {});
 renderAppPanel();
 loadSiteConfig();
-checkAdmin().then(() => { if (currentView === 'library') $('#libRefresh').hidden = !isAdmin; });
-if (viewFromHash() !== 'home') showView(viewFromHash());
+checkAdmin().then(() => { if (currentView === 'library') libraryAdminCheck(); });
+// library.js loads after this file, so the first route waits for it.
+document.addEventListener('DOMContentLoaded', () => { if (viewFromHash() !== 'home') showView(viewFromHash()); });
 refreshPlaylist();
