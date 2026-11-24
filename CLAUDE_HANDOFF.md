@@ -214,3 +214,13 @@ Keep the site premium rather than cluttered:
 - Card and header art is pinned to its frame (`position:absolute; inset:0; object-fit:contain`), so tall character renders are never cropped. "Main cast" wraps into a grid instead of scrolling off the screen.
 - Page types also read the wiki's first sentence (`summaryType`: the phrase right after "is/was/are/were", e.g. "is a major metropolis" → place, "is a group" → group). It outweighs categories, because the real wiki files groups and places under Characters too.
 - `LIB_PARSER` (now 3) is stored in the index; when it's older than the code, the admin's next Library visit re-imports automatically.
+
+## Round 13: Who's watching?, Saved, rotating featured, calendar "since", liquid glass (Claude, Nov 2026)
+
+- **Profiles** (`dist/profiles.js`): Netflix-style picker shown once per visit (inline `<head>` script adds `html.who-pending` before first paint; skipped for `?v=` links; "Ask every time" → `uux-who-off`). Each profile keeps its own data: the active one lives in PROFILE_KEY/SYNC_KEY as before, inactive ones are parked under `uux-profile-data-v1:<id>`; the list is `uux-profiles-v1`, the active id `uux-active-profile-v1` (plain JSON strings, so read with `readValue`, not `safeRead`). Kinds: `local` (this device only) and `account`.
+- **One-tap account switching** (`functions/api/account.js`): login/register also store the new session token in a second HttpOnly cookie `uu_keys` (Path=/api/account, up to 6 tokens). `GET /api/account/remembered` lists accounts openable without a password, `POST /api/account/switch {username}` swaps the main session to one of them (`''` steps out to a device profile), `POST /api/account/forget` revokes one. Logout and account deletion drop their token from `uu_keys`. Switching always pushes unsynced changes to the current account before the cookie changes, so profiles never mix.
+- **Saved** view (`#/saved`): favorites, watch later, bookmarked moments, with tabs.
+- **Featured**: the admin's pick if set, otherwise a random video per 5-hour slot (same for everyone; hash of the slot over the sorted video ids), with a countdown.
+- **Calendar**: "since last upload" card per creator, live; clicking jumps to that day.
+- **Iron rating glitch**: tier effects shook `<body>` (fixed bars jumped) and iron particles reused the `.shard` class (the rating buttons' styles). Both fixed (`layer.animate`, `.tp-shard`).
+- **Liquid glass**: flowing color blobs behind the glass (`.liquid-blobs`), wetter rim and caustic shading, spring "jelly" press, and real SVG backdrop refraction (`#lgRefract`) on the big surfaces in desktop Chromium (`html.lg-refract`).
