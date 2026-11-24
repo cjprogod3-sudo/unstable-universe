@@ -3275,7 +3275,7 @@ function renderLibraryView() {
   $('#libTypes').innerHTML = LIB_TYPES.filter(([key]) => counts[key] || key === 'all').map(([key, label]) => `<button type="button" class="side-chip ${libType === key ? 'active' : ''}" data-libtype="${key}" aria-pressed="${libType === key}">${label}<span class="chip-count">${counts[key]}</span></button>`).join('');
   const eras = [];
   for (const section of data.sections) {
-    const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
+    const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
     if (!eras.includes(era)) eras.push(era);
   }
   $('#libToc').innerHTML = `<p class="side-label">Contents</p>${eras.map(era => `<a href="#lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" data-libjump>${escapeHTML(era)}</a>`).join('')}${data.pages.length ? '<a href="#lib-pages" data-libjump>Items, people &amp; places</a>' : ''}`;
@@ -3284,10 +3284,10 @@ function renderLibraryView() {
   if (showEvents) {
     let lastEra = '';
     html += events.map(section => {
-      const era = section.level <= 2 ? section.title : section.path[0] || 'Overview';
-      const eraHeader = era !== lastEra && section.level !== 1 ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
+      const era = section.id === 'intro' ? 'Overview' : section.path[0] || section.title;
+      const eraHeader = era !== lastEra && section.id !== 'intro' ? `<h2 class="lib-era" id="lib-${escapeHTML(era.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}">${escapeHTML(era)}</h2>` : '';
       lastEra = era;
-      if (section.level <= 2 && section.title === era && !section.blocks.length) return eraHeader;
+      if (section.title === era && !section.blocks.length) return eraHeader;
       const related = relatedVideosFor(section.title, section.links);
       const linkChips = section.links.slice(0, 12).map(link => { const page = pageByTitle(link); return page ? `<button type="button" class="lib-link" data-libpage="${escapeHTML(page.title)}"><img src="${libraryIcon(page.title, page.type)}" alt="">${escapeHTML(page.title)}</button>` : ''; }).join('');
       return `${eraHeader}<article class="lib-event lg" id="ev-${escapeHTML(section.id)}">
@@ -3306,6 +3306,29 @@ function renderLibraryView() {
   if (!html) html = `<div class="empty-state"><img src="${ITEM_ROOT}compass_00.png" alt=""><h3>Nothing in the library matches “${escapeHTML(query)}”.</h3><p>Try a character, item, or place name.</p></div>`;
   $('#libMain').innerHTML = html;
 }
+const normalizeTitleText = text => String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9']+/g, ' ').trim();
+function videoByTitle(text) {
+  const wanted = normalizeTitleText(text);
+  if (wanted.length < 6) return null;
+  const exact = videos.find(video => normalizeTitleText(video.title) === wanted);
+  if (exact) return exact;
+  // Only long, multi-word titles may match inside a longer video title.
+  if (wanted.length < 16 || wanted.split(' ').length < 3) return null;
+  return videos.find(video => normalizeTitleText(video.title).includes(wanted)) || null;
+}
+// Infobox values: lists become tags, URLs become links, video titles become play buttons.
+function factValue(value) {
+  const parts = String(value).split(' · ').map(part => part.trim()).filter(Boolean);
+  const one = part => {
+    if (/^https:\/\/\S+$/.test(part)) return `<a href="${escapeHTML(part)}" target="_blank" rel="noreferrer">${escapeHTML(part.replace(/^https:\/\/(www\.)?/, '').replace(/\/$/, ''))} ↗</a>`;
+    const page = pageByTitle(part);
+    if (page) return `<button type="button" class="lib-link small" data-libpage="${escapeHTML(page.title)}">${escapeHTML(part)}</button>`;
+    const video = videoByTitle(part);
+    if (video) return `<button type="button" class="fact-video" data-play="${video.id}"><img src="${thumbOf(video)}" alt="">${escapeHTML(part)}</button>`;
+    return escapeHTML(part);
+  };
+  return parts.length > 1 ? `<span class="fact-tags">${parts.map(part => `<span class="fact-tag">${one(part)}</span>`).join('')}</span>` : one(parts[0] || '');
+}
 function openLibraryPage(title) {
   const page = pageByTitle(title);
   if (!page) return;
@@ -3315,7 +3338,7 @@ function openLibraryPage(title) {
   $('#libPage').innerHTML = `<button class="close-button" data-close-dialog="libPage" aria-label="Close" type="button">×</button>
     <div class="libp-head"><span class="lib-card-icon big"><img src="${libraryIcon(page.title, page.type)}" alt=""></span><div><p class="eyebrow">${escapeHTML((LIB_TYPES.find(([key]) => key === page.type)?.[1] || 'Page').toUpperCase())}</p><h2 id="libPageTitle">${escapeHTML(page.title)}</h2></div></div>
     <p class="libp-summary">${escapeHTML(page.summary)}</p>
-    ${fields.length ? `<dl class="ctx-grid">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>` : ''}
+    ${fields.length ? `<dl class="lib-facts">${fields.map(([key, value]) => `<div><dt>${escapeHTML(key)}</dt><dd>${factValue(value)}</dd></div>`).join('')}</dl>` : ''}
     ${page.more.map(part => `<h3 class="pl-sub">${escapeHTML(part.title)}</h3><p class="libp-more">${escapeHTML(part.text)}${part.text.length >= 500 ? '…' : ''}</p>`).join('')}
     ${mentions.length ? `<h3 class="pl-sub">Appears in the history</h3><div class="lib-links">${mentions.map(section => `<button type="button" class="lib-link" data-libevent="${escapeHTML(section.id)}">${escapeHTML(section.title)}</button>`).join('')}</div>` : ''}
     ${related.length ? `<h3 class="pl-sub">Videos that may feature it</h3>${related.map(video => sideCard(video, video.creator)).join('')}` : ''}
@@ -3362,7 +3385,9 @@ $('#libPage').addEventListener('click', event => {
   const play = event.target.closest('[data-play]');
   if (play) { $('#libPage').close(); openPlayer(play.dataset.play); return; }
   const ev = event.target.closest('[data-libevent]');
-  if (ev) jumpToLibraryEvent(ev.dataset.libevent);
+  if (ev) { jumpToLibraryEvent(ev.dataset.libevent); return; }
+  const linked = event.target.closest('[data-libpage]');
+  if (linked) openLibraryPage(linked.dataset.libpage);
 });
 $('#railLibrary').addEventListener('click', event => {
   const page = event.target.closest('[data-libpage]');

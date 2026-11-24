@@ -1376,3 +1376,17 @@ mark { padding: 0 2px; border-radius: 4px; background: rgba(125, 252, 216, .3); 
   .v-btn.v-text { min-width: 34px; padding: 0 4px; font-size: 12px; }
   .v-time { font-size: 11.5px; margin: 0 2px; }
 }
+
+/* Library page facts (round 8) */
+.lib-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 16px 0; }
+.lib-facts div { padding: 10px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; background: rgba(255,255,255,.03); }
+.lib-facts dt { margin-bottom: 4px; color: #7dfcd8; font: 500 10px DM Mono, monospace; letter-spacing: .6px; text-transform: uppercase; }
+.lib-facts dd { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.lib-facts a { color: #7dfcd8; text-decoration: none; }
+.lib-facts a:hover { text-decoration: underline; }
+.fact-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.fact-tag { padding: 3px 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.05); font-size: 12.5px; font-weight: 700; }
+.fact-video { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; border: 1px solid rgba(125, 252, 216, .3); border-radius: 12px; background: rgba(125, 252, 216, .08); color: #e8fff8; font: 700 13px/1.3 Manrope, sans-serif; text-align: left; cursor: pointer; }
+.fact-video:hover { background: rgba(125, 252, 216, .16); }
+.fact-video img { width: 56px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+.lib-link.small { padding: 2px 8px; font-size: 12px; }
