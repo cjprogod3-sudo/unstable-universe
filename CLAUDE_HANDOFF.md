@@ -95,7 +95,7 @@ Everything is still browser-local. No accounts, no community voting, no invented
 ## Round 9: fullscreen + pop out (Claude, Nov 2026)
 
 - **Fullscreen** uses the Fullscreen API on `#vstage` (with `navigationUI: 'hide'` and a landscape lock where allowed). Where element fullscreen isn't allowed (iPhone, some Home Screen apps) or the request fails, a CSS fullscreen (`.player-dialog.fake-full`) turns the dialog itself into a 100vw × 100dvh black screen with safe-area padding; Esc/close exits it. Theater mode's height cap no longer applies in fullscreen.
-- **Pop out (P)**: Chrome/Edge desktop use Document Picture-in-Picture (a floating window with a plain embed starting at the current second; progress isn't tracked while popped out). Safari and Android switch to YouTube's own player (`settings.nativePlayer`), whose fullscreen view offers the system PiP; a note offers "Switch back to our controls". iOS Home Screen apps can't do PiP (WebKit limitation), so a dialog offers "Open in Safari at m:ss" (`/?v=ID&t=SECONDS`) or the YouTube app.
+- **Pop out (P)**: Chrome/Edge desktop use Document Picture-in-Picture (a floating window with a plain embed starting at the current second; progress isn't tracked while popped out). Safari and Android switch to YouTube's own player for that video only (`openPlayer(id, {native: true})`; never saved, so later videos use our controls), whose fullscreen view offers the system PiP; a note offers "Switch back to our controls". iOS Home Screen apps can't do PiP (WebKit limitation), so a dialog offers "Open in Safari at m:ss" (`/?v=ID&t=SECONDS`) or the YouTube app.
 - **Touch**: when the controls have faded, the first tap on the video only reveals them; the next tap toggles play.
 - Deep links accept `&t=SECONDS`.
 
@@ -116,6 +116,12 @@ Everything is still browser-local. No accounts, no community voting, no invented
 - Accounts, cloud sync, community voting, leaderboards, Episode of the Week: these need a real backend (e.g. Cloudflare D1 + OAuth) plus moderation. The owner chose browser-only for now.
 - Interactive map, 3D exploration, character profiles, Unstable Archive, collectible inventory: these need sourced lore, coordinates, and models. Don't invent them. Build only when verified content exists, and label fan reconstructions.
 - A rearrangeable widget dashboard: skipped in favour of a few polished interactions, per the design direction below.
+
+## Round 10: F0_olish removed, tier ratings, phone mini player (Claude, Nov 2026)
+
+- **F0_olish removed** at the owner's request: `functions/api/catalog.js` drops his videos (`REMOVED_CHANNEL`), and `app.js` filters any cached copy with `keepVideo`. His theme, transition, sound, item set, advancement and hotbar slot are gone; "The Full Server" now needs 4 creator advancements. Hotbar is 1–5 creators, 6–8 actions.
+- **Ratings are tiers**: Coal, Copper, Iron, Diamond, Netherite (`TIERS`), still stored as 1–5 in `profile.ratings`, so old ratings carry over. `tierReaction()` plays a tier-specific sound and effect (soot, copper sparks, iron clang + shake, diamond stars + rays, full-screen Netherite banner with embers). The effect layer is a manual popover so it shows above the player dialog; Minimal preset / reduced motion get sound + toast only.
+- **Phone mini player** (≤680px): a compact bottom bar — video on the left, title, play/pause (`#miniPlay`), expand and close. Tap the video or swipe up to expand, swipe down to close. Hotbar hides while it's open.
 
 ## Architecture
 

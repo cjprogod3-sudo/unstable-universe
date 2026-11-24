@@ -17,11 +17,14 @@ const DAY = 86400000;
 const NEW_BANNER_DAYS = 2;
 const NEW_FILTER_DAYS = 7;
 
-const CREATORS = ['Wemmbu', 'Parrot', 'Spoke', 'FlameFrags', 'F0_olish'];
+const CREATORS = ['Wemmbu', 'Parrot', 'Spoke', 'FlameFrags'];
+// F0_olish's videos are left out of the site on purpose (catalog + any cached copy).
+const REMOVED_CREATOR = /f0_?olish/i;
+const keepVideo = video => Boolean(video) && !video.unavailable && !REMOVED_CREATOR.test(`${video.creator || ''} ${video.channelTitle || ''}`);
 
 const icons = {
-  All: 'nether_star.png', Wemmbu: 'mace.png', Parrot: 'spyglass.png', Spoke: 'totem_of_undying.png', FlameFrags: 'netherite_sword.png', F0_olish: 'trial_key.png', Other: 'compass_00.png',
-  'New uploads': 'firework_rocket.png', 'In progress': 'recovery_compass_00.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', 'Watch later': 'clock_00.png', Rated: 'amethyst_shard.png', Bookmarked: 'writable_book.png', Longform: 'clock_00.png',
+  All: 'nether_star.png', Wemmbu: 'mace.png', Parrot: 'spyglass.png', Spoke: 'totem_of_undying.png', FlameFrags: 'netherite_sword.png', Other: 'compass_00.png',
+  'New uploads': 'firework_rocket.png', 'In progress': 'recovery_compass_00.png', Watched: 'experience_bottle.png', 'Not started': 'map.png', Favorites: 'amethyst_shard.png', 'Watch later': 'clock_00.png', Rated: 'diamond.png', Bookmarked: 'writable_book.png', Longform: 'clock_00.png',
   Civilization: 'end_crystal.png', Law: 'book.png', Dimension: 'ender_eye.png', War: 'netherite_sword.png', Mafia: 'echo_shard.png', Prison: 'iron_door.png', 'Bases & vaults': 'bundle.png',
   Random: 'ender_pearl.png', Search: 'spyglass.png', Settings: 'redstone.png', YouTube: 'painting.png'
 };
@@ -31,7 +34,6 @@ const themes = {
   Parrot: {key: 'parrot', accent: '#77f59c', rgb: '119,245,156', two: '#218c56'},
   Spoke: {key: 'spoke', accent: '#ff85d3', rgb: '255,133,211', two: '#4ecdf4'},
   FlameFrags: {key: 'flamefrags', accent: '#ff6d78', rgb: '255,109,120', two: '#b72f49'},
-  F0_olish: {key: 'f0olish', accent: '#ffc35c', rgb: '255,195,92', two: '#b0671e'},
   Other: {key: 'other', accent: '#b9c3d6', rgb: '185,195,214', two: '#56627a'},
   Civilization: {key: 'civilization', accent: '#e0bf6b', rgb: '224,191,107', two: '#76613a'},
   War: {key: 'war', accent: '#ff9b62', rgb: '255,155,98', two: '#be3649'},
@@ -49,7 +51,7 @@ const COLLECTION_EMPTY = {
   'Not started': ['You have started everything in this view.', 'Impressive. Try another creator or clear the filters.'],
   Favorites: ['No favorites yet.', 'Use the amethyst button on any card to favorite it.'],
   'Watch later': ['Your watch later list is empty.', 'Use the clock button on any card to queue a video.'],
-  Rated: ['No ratings yet.', 'Rate a video from 1 to 5 shards and it appears here.'],
+  Rated: ['No ratings yet.', 'Give a video a tier from Coal to Netherite and it appears here.'],
   Bookmarked: ['No bookmarked moments yet.', 'Open the player and use "Bookmark this moment".'],
   Longform: ['No videos over an hour in this view.', 'Try another creator or clear the filters.']
 };
@@ -107,7 +109,6 @@ function normalizeSettings(raw) {
     videoVolume: clamp(Number.isFinite(Number(source.videoVolume)) ? Number(source.videoVolume) : 80, 0, 100),
     videoMuted: Boolean(source.videoMuted),
     captions: Boolean(source.captions),
-    nativePlayer: Boolean(source.nativePlayer),
     speed: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(Number(source.speed)) ? Number(source.speed) : 1
   };
 }
@@ -194,7 +195,6 @@ function tagMatches(video) {
   return found;
 }
 function knownCreator(value) {
-  if (/f0_?olish/i.test(value || '')) return 'F0_olish';
   return CREATORS.includes(value) ? value : 'Other';
 }
 function enrich(video, index) {
@@ -317,12 +317,6 @@ const SOUNDS = {
     [1240, 1830, 2620, 3410].forEach((frequency, index) => tone(bus, 0.21, 0.55 - index * 0.08, {from: frequency, gain: 0.07}));
     noise(bus, 0.24, 0.75, {filter: 'lowpass', from: 950, to: 280, gain: 0.22, attack: 0.06});
   },
-  F0_olish(bus) {
-    tone(bus, 0, 0.035, {type: 'square', from: 1600, gain: 0.07});
-    tone(bus, 0.16, 0.04, {type: 'square', from: 950, gain: 0.08});
-    tone(bus, 0.34, 0.8, {type: 'triangle', from: 659, gain: 0.09});
-    tone(bus, 0.42, 0.9, {type: 'triangle', from: 988, gain: 0.08});
-  },
   All(bus) {
     noise(bus, 0, 0.4, {from: 1800, to: 5000, gain: 0.06, attack: 0.15});
     [523, 659, 784, 1046].forEach((frequency, index) => tone(bus, 0.15 + index * 0.05, 1, {from: frequency, gain: 0.06, attack: 0.03}));
@@ -391,12 +385,11 @@ const ITEM_SETS = {
   Parrot: ['spyglass.png', 'feather.png', 'emerald.png', 'slime_ball.png', 'lime_dye.png', 'turtle_scute.png'],
   Spoke: ['totem_of_undying.png', 'red_dye.png', 'orange_dye.png', 'yellow_dye.png', 'lime_dye.png', 'light_blue_dye.png', 'purple_dye.png', 'magenta_dye.png'],
   FlameFrags: ['netherite_sword.png', 'blaze_powder.png', 'fire_charge.png', 'magma_cream.png', 'blaze_rod.png', 'netherite_ingot.png'],
-  F0_olish: ['trial_key.png', 'gold_ingot.png', 'honeycomb.png', 'clock_00.png', 'raw_gold.png', 'glowstone_dust.png'],
   Other: ['compass_00.png', 'map.png', 'paper.png']
 };
 const SPARK_TINTS = {
   All: ['#ffffff', '#8fd8ff', '#b5c2ff'], Wemmbu: ['#be85ff', '#e7c8ff', '#8a4dff'], Parrot: ['#77f59c', '#d4ffe0', '#2fbf6d'],
-  FlameFrags: ['#ff6d78', '#ffb36b', '#ff3d3d'], F0_olish: ['#ffc35c', '#fff2c8', '#ff9f2e'], Other: ['#ffffff', '#b9c3d6']
+  FlameFrags: ['#ff6d78', '#ffb36b', '#ff3d3d'], Other: ['#ffffff', '#b9c3d6']
 };
 const BLOCKERS = 'button, a, input, select, textarea, label, dialog, summary, kbd, h1, h2, h3, p, .glass-card, .video-card, .shelf-card, .hotbar, .topbar, .sidebar, .sidebar-scrim, .empty-state, .toast, .new-banner';
 const field = {items: [], sparks: [], rings: [], frame: 0, last: 0, drag: null, hover: null, colors: SPARK_TINTS.All, rainbow: false, canvas: null, ctx: null, w: 0, h: 0, pointer: null};
@@ -832,26 +825,6 @@ const TRANSITIONS = {
     run.at(470, () => run.apply());
     run.at(1250, () => run.finish());
   },
-  F0_olish(run, preset) {
-    const theme = themes.F0_olish;
-    const key = hero(run, 'F0_olish');
-    run.animate(key, [
-      {transform: 'translate(-50%,-50%) rotate(-90deg) scale(.3)', opacity: 0},
-      {transform: 'translate(-50%,-50%) rotate(0deg) scale(1.1)', opacity: 1, offset: 0.25},
-      {transform: 'translate(-50%,-50%) rotate(0deg) scale(1.1)', opacity: 1, offset: 0.35},
-      {transform: 'translate(-50%,-50%) rotate(90deg) scale(1.1)', opacity: 1, offset: 0.55, easing: 'steps(3, end)'},
-      {transform: 'translate(-50%,-50%) rotate(90deg) scale(1)', opacity: 1, offset: 0.75},
-      {transform: 'translate(-50%,-50%) rotate(90deg) scale(.6)', opacity: 0}
-    ], {duration: 1200, easing: 'cubic-bezier(.3,.7,.3,1)'});
-    run.at(640, () => {
-      flash(run, {color: `rgba(${theme.rgb},.85)`, peak: 0.28});
-      ring(run, {color: theme.accent, scale: 12});
-      if (preset.rings > 1) ring(run, {color: '#fff2c8', delay: 110, scale: 9, width: 2});
-      burst(run, {count: preset.particles, colors: [theme.accent, '#fff2c8', '#c77b25']});
-      run.apply();
-    });
-    run.at(1350, () => run.finish());
-  },
   All(run, preset) {
     const theme = themes.All;
     const star = hero(run, 'All');
@@ -1069,7 +1042,8 @@ async function copyText(text, message) {
    ========================================================================== */
 function ratingMarkup(video) {
   const rating = ratingFor(video.id);
-  return `<div class="rating-row"><span class="rating-caption">YOUR RATING ${rating ? `· ${rating}/5` : ''}</span><div class="shards" role="group" aria-label="Rate ${escapeHTML(video.title)}">${Array.from({length: 5}, (_, index) => `<button class="shard ${index < rating ? 'active' : ''}" type="button" data-rate="${index + 1}" data-id="${video.id}" aria-label="Rate ${index + 1} out of 5" aria-pressed="${index < rating}"><img src="${item('Rated')}" alt=""></button>`).join('')}</div></div>`;
+  const tier = TIERS[rating - 1];
+  return `<div class="rating-row"${tier ? ` style="--tier-rgb:${tier.rgb}"` : ''}><span class="rating-caption">${tier ? `<span class="tier-name t${rating}">${tier.name.toUpperCase()} TIER</span>` : 'RATE IT'}</span><div class="shards tiers" role="group" aria-label="Rate ${escapeHTML(video.title)}">${TIERS.map((entry, index) => `<button class="shard tier t${index + 1} ${index < rating ? 'active' : ''} ${index + 1 === rating ? 'chosen' : ''}" type="button" data-rate="${index + 1}" data-id="${video.id}" aria-label="${entry.name} tier" title="${entry.name}" aria-pressed="${index + 1 === rating}" style="--tier-rgb:${entry.rgb}"><img src="${ITEM_ROOT}${entry.icon}" alt=""></button>`).join('')}</div></div>`;
 }
 function iconButton({data, id, label, icon, active, extra = ''}) {
   return `<button class="icon-action ${active ? 'on' : ''}" type="button" data-${data}="${id}" aria-label="${escapeHTML(label)}" aria-pressed="${Boolean(active)}" title="${escapeHTML(label)}" ${extra}><img src="${item(icon)}" alt=""></button>`;
@@ -1195,7 +1169,7 @@ function updateProfileUI() {
     const theme = themes[entry.name] || themes.Other;
     const share = entry.total ? Math.round(entry.watched / entry.total * 100) : 0;
     return `<div class="creator-stat" style="--card-rgb:${theme.rgb};--card-accent:${theme.accent}"><img src="${item(entry.name)}" alt=""><span class="creator-stat-name">${escapeHTML(entry.name)}</span><span class="creator-stat-bar"><i style="width:${share}%"></i></span><span class="creator-stat-num">${entry.watched}/${entry.total}</span></div>`;
-  }).join('')}${top ? `<p class="stat-note">Your highest-rated creator so far: <strong>${escapeHTML(top.name)}</strong> (${top.average.toFixed(1)} average across ${top.ratedCount} of your ratings). This is your personal rating, not a community score.</p>` : ''}` : '';
+  }).join('')}${top ? `<p class="stat-note">Your highest-rated creator so far: <strong>${escapeHTML(top.name)}</strong> (averaging ${TIERS[Math.round(top.average) - 1]?.name || 'Coal'} tier across ${top.ratedCount} of your ratings). This is your personal rating, not a community score.</p>` : ''}` : '';
 }
 function setNotice(message, isError = false) {
   $('#catalogNotice').innerHTML = isError ? `<strong>Playlist unavailable.</strong> ${escapeHTML(message)} <button class="text-button" type="button" id="retryRefresh">Try again</button>${videos.length ? ' Showing the last saved copy.' : ''}` : message;
@@ -1238,10 +1212,10 @@ async function refreshPlaylist() {
       all.push(...(page.videos || []));
       pageToken = page.nextPageToken || '';
       pages += 1;
-      if (!hadCache) { allVideos = all.filter(video => !video.unavailable).map(enrich); videos = visibleOnly(allVideos); renderLibrary(); tryOpenPendingVideo(); }
+      if (!hadCache) { allVideos = all.filter(keepVideo).map(enrich); videos = visibleOnly(allVideos); renderLibrary(); tryOpenPendingVideo(); }
     } while (pageToken);
     unavailableCount = all.filter(video => video.unavailable).length;
-    allVideos = all.filter(video => !video.unavailable).map(enrich);
+    allVideos = all.filter(keepVideo).map(enrich);
     videos = visibleOnly(allVideos);
     catalogComplete = true;
     catalogMeta = {refreshedAt: Date.now(), unavailable: unavailableCount};
@@ -1282,11 +1256,143 @@ function tryOpenPendingVideo() {
 /* ==========================================================================
    Library actions
    ========================================================================== */
-function setRating(id, value) {
+/* ==========================================================================
+   Tier ratings: Coal → Copper → Iron → Diamond → Netherite (stored as 1–5).
+   Each tier has its own reaction; the higher the tier, the bigger the moment.
+   ========================================================================== */
+const TIERS = [
+  {name: 'Coal', icon: 'coal.png', rgb: '120,120,128', colors: ['#3a3a40', '#6b6b73', '#9a9aa3'], line: 'Into the furnace it goes.'},
+  {name: 'Copper', icon: 'copper_ingot.png', rgb: '232,124,74', colors: ['#e87c4a', '#ffb07a', '#5fc8a8'], line: 'Decent. It’ll oxidize nicely.'},
+  {name: 'Iron', icon: 'iron_ingot.png', rgb: '216,222,232', colors: ['#ffffff', '#d8dee8', '#9aa6b8'], line: 'Solid. Golem-approved.'},
+  {name: 'Diamond', icon: 'diamond.png', rgb: '92,232,224', colors: ['#5ce8e0', '#c9fffb', '#2bb8d8', '#ffffff'], line: 'Diamonds! Certified banger.'},
+  {name: 'Netherite', icon: 'netherite_ingot.png', rgb: '255,92,60', colors: ['#ff5c3c', '#ffb347', '#4a3436', '#ffe08a'], line: 'Fireproof. Legendary. Peak Unstable.'}
+];
+const TIER_SOUNDS = [
+  bus => { noise(bus, 0, 0.35, {filter: 'lowpass', from: 420, to: 140, gain: 0.32, attack: 0.01}); tone(bus, 0, 0.22, {from: 110, to: 60, gain: 0.25}); },
+  bus => { [988, 1318].forEach((f, i) => tone(bus, i * 0.07, 0.35, {type: 'triangle', from: f, gain: 0.09})); noise(bus, 0, 0.12, {from: 3500, gain: 0.08}); },
+  bus => { noise(bus, 0, 0.08, {from: 5200, q: 3, gain: 0.25}); [1661, 2490, 3322].forEach(f => tone(bus, 0, 0.9, {type: 'sine', from: f, gain: 0.07})); tone(bus, 0, 0.5, {type: 'triangle', from: 830, gain: 0.08}); },
+  bus => { [1568, 1976, 2349, 3136].forEach((f, i) => tone(bus, i * 0.075, 0.7, {from: f, gain: 0.08, attack: 0.005})); noise(bus, 0.05, 0.6, {filter: 'highpass', from: 7000, gain: 0.05, attack: 0.1}); },
+  bus => { tone(bus, 0, 1.4, {from: 72, to: 34, gain: 0.95, attack: 0.005}); noise(bus, 0, 1.1, {filter: 'lowpass', from: 900, to: 120, gain: 0.45, attack: 0.01}); tone(bus, 0.35, 1.2, {type: 'sawtooth', from: 147, to: 140, gain: 0.05, attack: 0.2}); [587, 740, 880, 1175].forEach((f, i) => tone(bus, 0.45 + i * 0.09, 0.9, {type: 'triangle', from: f, gain: 0.06})); }
+];
+function tierReaction(value, rect, id) {
+  const tier = TIERS[value - 1];
+  if (!tier) return;
+  const bus = audio.bus();
+  if (bus) TIER_SOUNDS[value - 1](bus);
+  const calm = effectiveFx() === 'minimal' || typeof Element.prototype.animate !== 'function';
+  if (calm || !rect) { toast(`${tier.name} tier. ${tier.line}`); return; }
+  const layer = document.createElement('div');
+  layer.className = `tier-fx t${value}`;
+  layer.style.setProperty('--tier-rgb', tier.rgb);
+  document.body.append(layer);
+  // The popover top layer keeps the reaction above the player dialog too.
+  if (typeof layer.showPopover === 'function') { layer.popover = 'manual'; try { layer.showPopover(); } catch { /* stays in the page */ } }
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const rand = (min, max) => min + Math.random() * (max - min);
+  const particle = (className, px, py, frames, options, extra = '') => {
+    const el = document.createElement('i');
+    el.className = className;
+    el.style.cssText = `left:${px}px;top:${py}px;${extra}`;
+    layer.append(el);
+    el.animate(frames, {fill: 'forwards', ...options});
+    return el;
+  };
+  // the ingot pops out of the button and floats up with its name
+  const pop = document.createElement('div');
+  pop.className = 'tier-pop';
+  pop.style.cssText = `left:${x}px;top:${y}px`;
+  pop.innerHTML = `<img src="${ITEM_ROOT}${tier.icon}" alt=""><b>${tier.name.toUpperCase()}</b><small>${escapeHTML(tier.line)}</small>`;
+  if (value < 5) {
+    layer.append(pop);
+    const rise = 70 + value * 16;
+    pop.animate([
+      {transform: 'translate(-50%,-50%) scale(.2)', opacity: 0},
+      {transform: `translate(-50%,calc(-50% - ${rise * 0.6}px)) scale(${1 + value * 0.08})`, opacity: 1, offset: 0.22},
+      {transform: `translate(-50%,calc(-50% - ${rise}px)) scale(1)`, opacity: 1, offset: 0.75},
+      {transform: `translate(-50%,calc(-50% - ${rise + 24}px)) scale(.9)`, opacity: 0}
+    ], {duration: 1300 + value * 140, easing: 'cubic-bezier(.2,.8,.3,1)', fill: 'forwards'});
+  }
+  if (value === 1) {
+    // coal: a puff of soot that drifts up and fades
+    for (let i = 0; i < 12; i += 1) particle('tp smoke', x + rand(-10, 10), y, [
+      {transform: 'translate(-50%,-50%) scale(.4)', opacity: .8},
+      {transform: `translate(calc(-50% + ${rand(-40, 40)}px), calc(-50% - ${rand(40, 110)}px)) scale(${rand(1.6, 2.6)})`, opacity: 0}
+    ], {duration: rand(900, 1500), easing: 'ease-out', delay: i * 25}, `background:${tier.colors[i % 3]}`);
+  } else if (value === 2) {
+    // copper: warm sparks with a patina-green ring
+    for (let i = 0; i < 18; i += 1) {
+      const angle = rand(0, Math.PI * 2); const dist = rand(30, 80);
+      particle('tp spark', x, y, [
+        {transform: 'translate(-50%,-50%) scale(1)', opacity: 1},
+        {transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist + 20}px)) scale(.3)`, opacity: 0}
+      ], {duration: rand(500, 800), easing: 'cubic-bezier(.1,.7,.4,1)'}, `background:${tier.colors[i % 3]}`);
+    }
+    particle('tp ring', x, y, [{transform: 'translate(-50%,-50%) scale(.2)', opacity: .9}, {transform: 'translate(-50%,-50%) scale(2.4)', opacity: 0}], {duration: 700, easing: 'ease-out'}, `border-color:${tier.colors[2]}`);
+  } else if (value === 3) {
+    // iron: an anvil clang, a hard white ring and metal shards
+    particle('tp ring', x, y, [{transform: 'translate(-50%,-50%) scale(.3)', opacity: 1}, {transform: 'translate(-50%,-50%) scale(3.2)', opacity: 0}], {duration: 600, easing: 'cubic-bezier(.1,.8,.3,1)'}, 'border-color:#fff;border-width:3px');
+    for (let i = 0; i < 14; i += 1) {
+      const angle = (i / 14) * Math.PI * 2; const dist = rand(50, 95);
+      particle('tp shard', x, y, [
+        {transform: `translate(-50%,-50%) rotate(${angle}rad) scaleX(1)`, opacity: 1},
+        {transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist}px)) rotate(${angle}rad) scaleX(.2)`, opacity: 0}
+      ], {duration: 520, easing: 'cubic-bezier(.1,.8,.3,1)'}, `background:${tier.colors[i % 3]}`);
+    }
+    document.body.animate([{transform: 'translate(0,0)'}, {transform: 'translate(2px,-2px)'}, {transform: 'translate(-2px,1px)'}, {transform: 'translate(0,0)'}], {duration: 180});
+  } else if (value === 4) {
+    // diamond: glinting stars, light rays and a cyan glow over the screen
+    particle('tp rays', x, y, [{transform: 'translate(-50%,-50%) scale(.2) rotate(0deg)', opacity: 0}, {transform: 'translate(-50%,-50%) scale(1) rotate(25deg)', opacity: .85, offset: 0.3}, {transform: 'translate(-50%,-50%) scale(1.3) rotate(60deg)', opacity: 0}], {duration: 1400, easing: 'ease-out'});
+    for (let i = 0; i < 22; i += 1) {
+      const angle = rand(0, Math.PI * 2); const dist = rand(40, 150);
+      particle('tp star', x, y, [
+        {transform: 'translate(-50%,-50%) scale(0) rotate(0deg)', opacity: 1},
+        {transform: `translate(calc(-50% + ${Math.cos(angle) * dist * 0.7}px), calc(-50% + ${Math.sin(angle) * dist * 0.7}px)) scale(${rand(0.8, 1.5)}) rotate(90deg)`, opacity: 1, offset: 0.5},
+        {transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist}px)) scale(0) rotate(180deg)`, opacity: 0}
+      ], {duration: rand(800, 1300), easing: 'ease-out', delay: rand(0, 220)}, `--star:${tier.colors[i % 4]}`);
+    }
+    particle('tp wash', 0, 0, [{opacity: 0}, {opacity: 1, offset: 0.2}, {opacity: 0}], {duration: 1100});
+  } else {
+    // netherite: the screen goes dark and hot, embers rise, the ingot slams down
+    particle('tp wash', 0, 0, [{opacity: 0}, {opacity: 1, offset: 0.12}, {opacity: 1, offset: 0.7}, {opacity: 0}], {duration: 2400});
+    const w = innerWidth; const h = innerHeight;
+    for (let i = 0; i < 46; i += 1) particle('tp ember', rand(0, w), h + 10, [
+      {transform: 'translate(-50%,0) scale(1)', opacity: 0},
+      {opacity: 1, offset: 0.15},
+      {transform: `translate(calc(-50% + ${rand(-60, 60)}px), ${-rand(h * 0.4, h * 1)}px) scale(.3)`, opacity: 0}
+    ], {duration: rand(1400, 2400), easing: 'cubic-bezier(.3,.6,.4,1)', delay: rand(0, 600)}, `background:${tier.colors[i % 4 === 2 ? 0 : i % 4]}`);
+    for (let i = 0; i < 24; i += 1) {
+      const angle = rand(0, Math.PI * 2); const dist = rand(50, 130);
+      particle('tp spark', x, y, [
+        {transform: 'translate(-50%,-50%) scale(1.2)', opacity: 1},
+        {transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist}px)) scale(.2)`, opacity: 0}
+      ], {duration: rand(500, 900), easing: 'cubic-bezier(.1,.7,.4,1)'}, `background:${tier.colors[i % 2]}`);
+    }
+    const banner = document.createElement('div');
+    banner.className = 'tier-banner';
+    banner.innerHTML = `<img src="${ITEM_ROOT}${tier.icon}" alt=""><b>NETHERITE TIER</b><small>${escapeHTML(getVideo(id)?.title || '')}</small><em>${escapeHTML(tier.line)}</em>`;
+    layer.append(banner);
+    banner.animate([
+      {transform: 'translate(-50%,-50%) scale(2.6)', opacity: 0, filter: 'blur(8px)'},
+      {transform: 'translate(-50%,-50%) scale(.94)', opacity: 1, filter: 'blur(0)', offset: 0.14, easing: 'cubic-bezier(.2,1.4,.4,1)'},
+      {transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.78},
+      {transform: 'translate(-50%,-50%) scale(1.04)', opacity: 0}
+    ], {duration: 2500, fill: 'forwards'});
+    if (effectiveFx() !== 'minimal') document.body.animate([{transform: 'translate(0,0)'}, {transform: 'translate(-6px,4px)'}, {transform: 'translate(5px,-3px)'}, {transform: 'translate(-3px,2px)'}, {transform: 'translate(0,0)'}], {duration: 360, delay: 300});
+  }
+  announce(`${tier.name} tier.`);
+  setTimeout(() => layer.remove(), value === 5 ? 3000 : 1900);
+}
+function setRating(id, value, anchor) {
+  const rect = anchor?.getBoundingClientRect?.();
+  const card = anchor?.closest?.('.video-card, .player-rail, .ep-rating');
   profile.ratings[id] = ratingFor(id) === value ? 0 : value;
   saveProfile();
   renderLibrary();
   refreshPlayerButtons();
+  if (profile.ratings[id]) tierReaction(value, rect, id);
+  else toast('Rating cleared');
+  if (card && profile.ratings[id] && card.isConnected) { card.classList.remove('tier-hit'); void card.offsetWidth; card.style.setProperty('--tier-rgb', TIERS[value - 1].rgb); card.classList.add('tier-hit'); setTimeout(() => card.classList.remove('tier-hit'), 1200); }
 }
 function toggleFavorite(id) {
   profile.favorites[id] = !profile.favorites[id];
@@ -1546,6 +1652,8 @@ function updateControls() {
     document.querySelectorAll('#chapterList .chapter-row').forEach(row => row.classList.toggle('current', Boolean(chapter) && Number(row.dataset.seek) === chapter.t));
   }
   stage.classList.toggle('playing', isPlaying());
+  $('#miniPlay').classList.toggle('playing', isPlaying());
+  $('#miniPlay').setAttribute('aria-label', isPlaying() ? 'Pause' : 'Play');
   $('#vPlay').setAttribute('aria-label', isPlaying() ? 'Pause (K)' : 'Play (K)');
   if (secondPlayer && multiSync && secondPlayer.getCurrentTime) {
     try {
@@ -1700,10 +1808,10 @@ async function popOut() {
   // the system picture-in-picture window.
   if (fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   exitFakeFullscreen();
-  settings.nativePlayer = true;
-  saveSettings();
+  const wasMini = playerDialog.classList.contains('mini');
   teardownPlayer();
-  openPlayer(video.id, {start: t, popout: true});
+  await openPlayer(video.id, {start: t, popout: true, native: true});
+  if (wasMini) minimizeOrExpand();
 }
 function showPopOutHelp(video, t, mode) {
   const link = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}&t=${t}s`;
@@ -1717,8 +1825,6 @@ function showPopOutHelp(video, t, mode) {
 }
 function useOurControls() {
   const video = getVideo(activeVideoId);
-  settings.nativePlayer = false;
-  saveSettings();
   if (!video) return;
   const t = Math.floor(youtubePlayer?.getCurrentTime?.() || 0);
   teardownPlayer();
@@ -1761,13 +1867,38 @@ stage.addEventListener('pointermove', event => { if (event.pointerType === 'mous
 // Touch: when the controls are hidden, the first tap only brings them back (like YouTube).
 let tapRevealed = false;
 stage.addEventListener('pointerdown', event => { tapRevealed = event.pointerType !== 'mouse' && stage.classList.contains('idle'); wake(); }, true);
+const phoneMini = () => playerDialog.classList.contains('mini') && matchMedia('(max-width: 680px)').matches;
 $('#vHit').addEventListener('click', () => {
+  if (phoneMini()) { tapRevealed = false; minimizeOrExpand(); return; }
   if (tapRevealed) { tapRevealed = false; return; }
   if (!$('#vMenu').hidden) { toggleMenu(false); return; }
   togglePlay();
 });
 $('#vHit').addEventListener('dblclick', toggleFullscreen);
 $('#vPlay').addEventListener('click', togglePlay);
+$('#miniPlay').addEventListener('click', () => { togglePlay(); setTimeout(updateControls, 120); });
+{
+  let swipe = null;
+  playerDialog.addEventListener('touchstart', event => {
+    swipe = playerDialog.classList.contains('mini') && event.touches.length === 1 && !event.target.closest('button') ? {y: event.touches[0].clientY, x: event.touches[0].clientX} : null;
+  }, {passive: true});
+  playerDialog.addEventListener('touchmove', event => {
+    if (!swipe) return;
+    const dy = event.touches[0].clientY - swipe.y;
+    playerDialog.style.transform = dy > 0 ? `translateY(${dy}px)` : `translateY(${dy / 3}px)`;
+    playerDialog.style.opacity = dy > 0 ? String(Math.max(0.3, 1 - dy / 200)) : '';
+    swipe.dy = dy;
+  }, {passive: true});
+  playerDialog.addEventListener('touchend', () => {
+    if (!swipe) return;
+    const dy = swipe.dy || 0;
+    swipe = null;
+    playerDialog.style.transform = '';
+    playerDialog.style.opacity = '';
+    if (dy > 70) $('#playerClose').click();
+    else if (dy < -50) minimizeOrExpand();
+  });
+}
 $('#vBack').addEventListener('click', () => seekBy(-10));
 $('#vFwd').addEventListener('click', () => seekBy(10));
 $('#vNext').addEventListener('click', () => $('#nextButton').click());
@@ -1955,7 +2086,7 @@ async function openPlayer(id, options = {}) {
     youtubePlayer = new YT.Player('youtubePlayer', {
       videoId: id,
       host: 'https://www.youtube-nocookie.com',
-      playerVars: settings.nativePlayer
+      playerVars: playerOptions.native
         ? {autoplay: 1, rel: 0, playsinline: 1, controls: 1, fs: 1, iv_load_policy: 3, modestbranding: 1, origin: location.origin}
         : {autoplay: 1, rel: 0, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, cc_load_policy: settings.captions ? 1 : 0, origin: location.origin},
       events: {
@@ -1963,10 +2094,10 @@ async function openPlayer(id, options = {}) {
           if (activeVideoId !== id) return;
           const saved = progressFor(id);
           currentDuration = event.target.getDuration() || currentDuration;
-          stage.classList.toggle('native', Boolean(settings.nativePlayer));
-          if (settings.nativePlayer) {
+          stage.classList.toggle('native', Boolean(playerOptions.native));
+          if (playerOptions.native) {
             if (playerOptions.start >= 0) event.target.seekTo(playerOptions.start, true);
-            $('#resumeNote').innerHTML = `${playerOptions.popout ? '<strong>Ready to pop out.</strong> Tap YouTube’s full-screen button ⛶ in the video, then its picture-in-picture button (or swipe home) to keep watching in a floating window. ' : 'You’re using YouTube’s own player controls. '}<button class="text-button" type="button" data-own-controls>Switch back to our controls</button>`;
+            $('#resumeNote').innerHTML = `${playerOptions.popout ? '<strong>Ready to float.</strong> Press play, tap YouTube’s full-screen button ⛶, then the picture-in-picture button ⧉ (or just swipe home while it plays) and it keeps going in a floating window over other apps. ' : 'You’re using YouTube’s own player controls. '}<button class="text-button" type="button" data-own-controls>Switch back to our controls</button>`;
             $('#resumeNote').hidden = false;
           } else if (playerOptions.start >= 0) {
             event.target.seekTo(playerOptions.start, true);
@@ -2430,9 +2561,9 @@ function toggleSound() {
    ========================================================================== */
 const HOTBAR = [
   ...['All', ...CREATORS].map((name, index) => ({key: String(index + 1), icon: name, label: name === 'All' ? 'All creators' : name, creator: name})),
-  {key: '7', icon: 'Watch later', label: 'Watch later', action: () => setFilter('collection', filters.collection === 'Watch later' ? 'All' : 'Watch later')},
-  {key: '8', icon: 'In progress', label: 'Continue watching', action: continueWatching},
-  {key: '9', icon: 'Search', label: 'Command palette', action: () => openPalette()}
+  {key: String(CREATORS.length + 2), icon: 'Watch later', label: 'Watch later', action: () => setFilter('collection', filters.collection === 'Watch later' ? 'All' : 'Watch later')},
+  {key: String(CREATORS.length + 3), icon: 'In progress', label: 'Continue watching', action: continueWatching},
+  {key: String(CREATORS.length + 4), icon: 'Search', label: 'Command palette', action: () => openPalette()}
 ];
 function renderHotbar() {
   $('#hotbarSlots').innerHTML = HOTBAR.map(slot => {
@@ -2579,7 +2710,7 @@ function handleCardClick(event) {
   const button = event.target.closest('button');
   if (!button) return;
   if (button.dataset.play) openPlayer(button.dataset.play);
-  else if (button.dataset.rate) setRating(button.dataset.id, Number(button.dataset.rate));
+  else if (button.dataset.rate) setRating(button.dataset.id, Number(button.dataset.rate), button);
   else if (button.dataset.favorite) toggleFavorite(button.dataset.favorite);
   else if (button.dataset.later) toggleLater(button.dataset.later);
   else if (button.dataset.watched) toggleWatched(button.dataset.watched);
@@ -2646,7 +2777,7 @@ playerDialog.addEventListener('click', event => {
   else if (target.dataset.removeBookmark !== undefined) removeBookmark(Number(target.dataset.removeBookmark));
   else if (target.dataset.play) openPlayer(target.dataset.play);
   else if (target.dataset.multi) openMulti(target.dataset.multi);
-  else if (target.dataset.rate) setRating(target.dataset.id, Number(target.dataset.rate));
+  else if (target.dataset.rate) setRating(target.dataset.id, Number(target.dataset.rate), target);
   else if (target.id === 'loadComments') loadComments();
 });
 playerDialog.addEventListener('close', () => {
@@ -2948,11 +3079,10 @@ const ACHIEVEMENTS = [
   {id: 'parrot', title: 'Eagle Eye', desc: 'Finish every Parrot video.', item: 'spyglass.png', rarity: 'legendary', goal: creatorGoal('Parrot')},
   {id: 'spoke', title: 'Postmortal', desc: 'Finish every Spoke video.', item: 'totem_of_undying.png', rarity: 'legendary', goal: creatorGoal('Spoke')},
   {id: 'flamefrags', title: 'Netherite Edge', desc: 'Finish every FlameFrags video.', item: 'netherite_sword.png', rarity: 'legendary', goal: creatorGoal('FlameFrags')},
-  {id: 'f0olish', title: 'Checkpoint Reached', desc: 'Finish every F0_olish video.', item: 'trial_key.png', rarity: 'epic', goal: creatorGoal('F0_olish')},
-  {id: 'fullserver', title: 'The Full Server', desc: 'Unlock all five creator advancements.', item: 'golden_helmet.png', rarity: 'mythic', goal: () => [['wemmbu', 'parrot', 'spoke', 'flamefrags', 'f0olish'].filter(id => profile.achievements[id]).length, 5]},
+  {id: 'fullserver', title: 'The Full Server', desc: 'Unlock all four creator advancements.', item: 'golden_helmet.png', rarity: 'mythic', goal: () => [['wemmbu', 'parrot', 'spoke', 'flamefrags'].filter(id => profile.achievements[id]).length, 4]},
   {id: 'marathon', title: 'Marathon', desc: 'Watch 10 hours in total.', item: 'clock_00.png', rarity: 'rare', goal: s => [Math.floor(s.hours), 10]},
   {id: 'timelord', title: 'Time Lord', desc: 'Watch 50 hours in total.', item: 'recovery_compass_00.png', rarity: 'epic', goal: s => [Math.floor(s.hours), 50]},
-  {id: 'critic', title: 'Critic', desc: 'Rate 10 videos.', item: 'amethyst_shard.png', rarity: 'common', goal: s => [s.ratings, 10]},
+  {id: 'critic', title: 'Critic', desc: 'Rate 10 videos.', item: 'iron_ingot.png', rarity: 'common', goal: s => [s.ratings, 10]},
   {id: 'headcritic', title: 'Head Critic', desc: 'Rate 50 videos.', item: 'echo_shard.png', rarity: 'epic', goal: s => [s.ratings, 50]},
   {id: 'collector', title: 'Collector', desc: 'Favorite 5 videos.', item: 'bundle.png', rarity: 'rare', goal: s => [s.favorites, 5]},
   {id: 'cartographer', title: 'Cartographer', desc: 'Bookmark 5 moments.', item: 'map.png', rarity: 'rare', goal: s => [s.bookmarks, 5]},
@@ -3572,7 +3702,7 @@ $('#sceneView').addEventListener('click', event => {
 });
 
 /* ---------- boot ---------- */
-allVideos = videos.filter(video => !video?.unavailable).map(enrich);
+allVideos = videos.filter(keepVideo).map(enrich);
 videos = visibleOnly(allVideos);
 catalogComplete = allVideos.length > 0;
 const creatorFromURL = readURL();
