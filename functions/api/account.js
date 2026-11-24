@@ -4,6 +4,10 @@
 // from this site's own origin.
 
 const COOKIE = 'uu_session';
+// Netflix-style profiles: every account signed in on this device keeps its own
+// session token in a second HttpOnly cookie, so switching profiles needs no password.
+const KEYS_COOKIE = 'uu_keys';
+const MAX_REMEMBERED = 6;
 const SESSION_DAYS = 60;
 const PBKDF2_ITERATIONS = 100000;
 const MAX_PROFILE_BYTES = 300_000;
@@ -59,6 +63,32 @@ function readCookie(request) {
   const match = header.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]{64})`));
   return match ? match[1] : '';
 }
+function readKeys(request) {
+  const header = request.headers.get('Cookie') || '';
+  const match = header.match(new RegExp(`(?:^|;\\s*)${KEYS_COOKIE}=([a-f0-9.]{0,500})`));
+  return match ? [...new Set(match[1].split('.').filter(token => /^[a-f0-9]{64}$/.test(token)))].slice(0, MAX_REMEMBERED) : [];
+}
+function keysCookie(tokens, request) {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return tokens.length
+    ? `${KEYS_COOKIE}=${tokens.join('.')}; Path=/api/account; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`
+    : `${KEYS_COOKIE}=; Path=/api/account; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+}
+// The remembered tokens that still work, with whose account each one opens.
+async function rememberedSessions(db, request) {
+  const tokens = readKeys(request);
+  if (!tokens.length) return [];
+  const hashes = await Promise.all(tokens.map(sha256));
+  const rows = await db.prepare(`SELECT users.username, sessions.token_hash FROM sessions JOIN users ON users.id = sessions.user_id
+    WHERE sessions.expires_at > ? AND sessions.token_hash IN (${hashes.map(() => '?').join(',')})`).bind(Date.now(), ...hashes).all();
+  const byHash = new Map((rows.results || []).map(row => [row.token_hash, row.username]));
+  return tokens.map((token, index) => ({token, username: byHash.get(hashes[index])})).filter(entry => entry.username);
+}
+// Put a new session first in the remembered list, replacing that account's older one.
+async function rememberCookie(db, request, token, username) {
+  const kept = (await rememberedSessions(db, request)).filter(entry => entry.username.toLowerCase() !== username.toLowerCase()).map(entry => entry.token);
+  return keysCookie([token, ...kept].slice(0, MAX_REMEMBERED), request);
+}
 export function sameOrigin(request) {
   const origin = request.headers.get('Origin');
   if (!origin) return false;
@@ -91,11 +121,15 @@ async function recordFailure(db, key) {
     window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END`).bind(key, now, now, LOGIN_WINDOW_MS, now, LOGIN_WINDOW_MS, now).run();
 }
 
-async function startSession(db, userId, request) {
+async function startSession(db, userId, request, username) {
   const token = randomHex(32);
   const now = Date.now();
   await db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(token), userId, now, now + SESSION_DAYS * 86400000).run();
-  return sessionCookie(token, request);
+  return [sessionCookie(token, request), await rememberCookie(db, request, token, username)];
+}
+function withCookies(response, cookies) {
+  for (const cookie of cookies) response.headers.append('Set-Cookie', cookie);
+  return response;
 }
 export async function currentUser(db, request) {
   const token = readCookie(request);
@@ -140,8 +174,8 @@ export async function handleAccount(request, env) {
         return json({error: 'That username is taken.'}, 409);
       }
       await recordFailure(db, `register:${ip}`);
-      const cookie = await startSession(db, id, request);
-      return json({user: {username: credentials.username}, profile: null, updatedAt: 0}, 201, {'Set-Cookie': cookie});
+      const cookies = await startSession(db, id, request, credentials.username);
+      return withCookies(json({user: {username: credentials.username}, profile: null, updatedAt: 0}, 201), cookies);
     }
 
     if (path === '/api/account/login' && method === 'POST') {
@@ -159,14 +193,46 @@ export async function handleAccount(request, env) {
       }
       await db.prepare('DELETE FROM login_attempts WHERE key = ?').bind(limitKey).run();
       await db.prepare('DELETE FROM sessions WHERE user_id = ? AND expires_at < ?').bind(user.id, Date.now()).run();
-      const cookie = await startSession(db, user.id, request);
-      return json(await profilePayload(db, user), 200, {'Set-Cookie': cookie});
+      const cookies = await startSession(db, user.id, request, user.username);
+      return withCookies(json(await profilePayload(db, user), 200), cookies);
+    }
+
+    // Which accounts can be opened on this device without a password.
+    if (path === '/api/account/remembered' && method === 'GET') {
+      const current = await currentUser(db, request);
+      const list = await rememberedSessions(db, request);
+      return json({accounts: list.map(entry => entry.username), current: current ? current.username : ''});
+    }
+
+    // "Remove from this device": the remembered sign-in for that account is revoked.
+    if (path === '/api/account/forget' && method === 'POST') {
+      const body = await readBody(request, 500);
+      const wanted = String(body.username || '').trim().toLowerCase();
+      const list = await rememberedSessions(db, request);
+      const gone = list.filter(entry => entry.username.toLowerCase() === wanted);
+      for (const entry of gone) await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(entry.token)).run();
+      const kept = readKeys(request).filter(token => !gone.some(entry => entry.token === token));
+      const cookies = [keysCookie(kept, request)];
+      if (gone.some(entry => entry.token === readCookie(request))) cookies.push(sessionCookie('', request));
+      return withCookies(json({ok: true}), cookies);
+    }
+
+    // Switch profiles: open a remembered account, or (username '') step out to a device profile.
+    if (path === '/api/account/switch' && method === 'POST') {
+      const body = await readBody(request, 500);
+      const wanted = String(body.username || '').trim().toLowerCase();
+      if (!wanted) return json({ok: true, user: null}, 200, {'Set-Cookie': sessionCookie('', request)});
+      const entry = (await rememberedSessions(db, request)).find(item => item.username.toLowerCase() === wanted);
+      if (!entry) return json({error: 'Enter the password for this profile.', needPassword: true}, 401);
+      const user = await db.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE').bind(entry.username).first();
+      return json(await profilePayload(db, user), 200, {'Set-Cookie': sessionCookie(entry.token, request)});
     }
 
     if (path === '/api/account/logout' && method === 'POST') {
       const token = readCookie(request);
       if (token) await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
-      return json({ok: true}, 200, {'Set-Cookie': sessionCookie('', request)});
+      const kept = readKeys(request).filter(key => key !== token);
+      return withCookies(json({ok: true}), [sessionCookie('', request), keysCookie(kept, request)]);
     }
 
     if (path === '/api/account/profile' && method === 'PUT') {
@@ -202,7 +268,8 @@ export async function handleAccount(request, env) {
         db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
         db.prepare('DELETE FROM users WHERE id = ?').bind(user.id)
       ]);
-      return json({ok: true}, 200, {'Set-Cookie': sessionCookie('', request)});
+      const kept = readKeys(request).filter(key => key !== readCookie(request));
+      return withCookies(json({ok: true}), [sessionCookie('', request), keysCookie(kept, request)]);
     }
 
     return json({error: 'Not found.'}, 404);

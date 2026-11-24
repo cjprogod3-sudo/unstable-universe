@@ -15,7 +15,7 @@ export default {
     if (path === '/api/moments' || path === '/api/video') return handleMoments(request, env);
     if (path === '/api/site' || path.startsWith('/api/push/') || path.startsWith('/api/admin/')) return handleSite(request, env, ctx);
     const asset = await env.ASSETS.fetch(request);
-    if (path === '/' || path === '/index.html' || path === '/app.js' || path === '/library.js' || path === '/styles.css' || path === '/sw.js' || path === '/manifest.webmanifest') {
+    if (path === '/' || path === '/index.html' || path === '/app.js' || path === '/library.js' || path === '/profiles.js' || path === '/styles.css' || path === '/sw.js' || path === '/manifest.webmanifest') {
       const headers = new Headers(asset.headers);
       headers.set('Cache-Control', 'no-store, max-age=0');
       return new Response(asset.body, {status: asset.status, statusText: asset.statusText, headers});

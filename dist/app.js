@@ -1124,6 +1124,7 @@ function renderLibrary(options = {}) {
   renderNewBanner();
   renderAnnouncement();
   renderFeatured();
+  if (typeof currentView !== 'undefined' && currentView === 'saved') renderSaved();
   renderRecap();
   if (catalogComplete && !loading) checkAchievements();
   renderHotbar();
@@ -1154,8 +1155,14 @@ function updateProfileUI() {
   $('#inProgressCount').textContent = String(inProgress);
   $('#watchedPercent').textContent = `${percent}%`;
   $('#progressOrb').style.setProperty('--orb', `${percent * 3.6}deg`);
-  $('#profileLabel').textContent = profile.name || 'This device';
-  $('#profileAvatar').textContent = (profile.name || '?').trim().charAt(0).toUpperCase() || '?';
+  // the "Who's watching?" profile, when there is one, names and colors the sidebar button
+  const deviceEntry = typeof activeProfile === 'function' ? activeProfile() : null;
+  $('#profileLabel').textContent = profile.name || deviceEntry?.name || 'This device';
+  if (deviceEntry) {
+    $('#profileAvatar').innerHTML = `<img src="${ITEM_ROOT}${deviceEntry.avatar}" alt="">`;
+    $('#profileAvatar').style.setProperty('--c', deviceEntry.color);
+    $('#profileAvatar').classList.add('who-mini');
+  } else $('#profileAvatar').textContent = (profile.name || '?').trim().charAt(0).toUpperCase() || '?';
   $('#profileSub').textContent = syncLabel();
   const ratingsSaved = Object.keys(profile.ratings).filter(id => ratingFor(id)).length;
   const bookmarkCount = Object.values(profile.bookmarks).reduce((sum, list) => sum + list.length, 0);
@@ -1334,12 +1341,13 @@ function tierReaction(value, rect, id) {
     particle('tp ring', x, y, [{transform: 'translate(-50%,-50%) scale(.3)', opacity: 1}, {transform: 'translate(-50%,-50%) scale(3.2)', opacity: 0}], {duration: 600, easing: 'cubic-bezier(.1,.8,.3,1)'}, 'border-color:#fff;border-width:3px');
     for (let i = 0; i < 14; i += 1) {
       const angle = (i / 14) * Math.PI * 2; const dist = rand(50, 95);
-      particle('tp shard', x, y, [
+      particle('tp tp-shard', x, y, [
         {transform: `translate(-50%,-50%) rotate(${angle}rad) scaleX(1)`, opacity: 1},
         {transform: `translate(calc(-50% + ${Math.cos(angle) * dist}px), calc(-50% + ${Math.sin(angle) * dist}px)) rotate(${angle}rad) scaleX(.2)`, opacity: 0}
       ], {duration: 520, easing: 'cubic-bezier(.1,.8,.3,1)'}, `background:${tier.colors[i % 3]}`);
     }
-    document.body.animate([{transform: 'translate(0,0)'}, {transform: 'translate(2px,-2px)'}, {transform: 'translate(-2px,1px)'}, {transform: 'translate(0,0)'}], {duration: 180});
+    // shake only the effect itself: moving <body> made the fixed top bar and sidebar jump (the "glitch")
+    layer.animate([{transform: 'translate(0,0)'}, {transform: 'translate(3px,-2px)'}, {transform: 'translate(-3px,2px)'}, {transform: 'translate(0,0)'}], {duration: 180});
   } else if (value === 4) {
     // diamond: glinting stars, light rays and a cyan glow over the screen
     particle('tp rays', x, y, [{transform: 'translate(-50%,-50%) scale(.2) rotate(0deg)', opacity: 0}, {transform: 'translate(-50%,-50%) scale(1) rotate(25deg)', opacity: .85, offset: 0.3}, {transform: 'translate(-50%,-50%) scale(1.3) rotate(60deg)', opacity: 0}], {duration: 1400, easing: 'ease-out'});
@@ -1378,7 +1386,7 @@ function tierReaction(value, rect, id) {
       {transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.78},
       {transform: 'translate(-50%,-50%) scale(1.04)', opacity: 0}
     ], {duration: 2500, fill: 'forwards'});
-    if (effectiveFx() !== 'minimal') document.body.animate([{transform: 'translate(0,0)'}, {transform: 'translate(-6px,4px)'}, {transform: 'translate(5px,-3px)'}, {transform: 'translate(-3px,2px)'}, {transform: 'translate(0,0)'}], {duration: 360, delay: 300});
+    if (effectiveFx() !== 'minimal') layer.animate([{transform: 'translate(0,0)'}, {transform: 'translate(-6px,4px)'}, {transform: 'translate(5px,-3px)'}, {transform: 'translate(-3px,2px)'}, {transform: 'translate(0,0)'}], {duration: 360, delay: 300});
   }
   announce(`${tier.name} tier.`);
   setTimeout(() => layer.remove(), value === 5 ? 3000 : 1900);
@@ -2368,6 +2376,7 @@ async function submitAccountForm(event) {
     saveSyncMeta();
     await pushProfile();
     toast(register ? `Account created. Welcome, ${account.user}!` : `Signed in as ${account.user}`);
+    if (typeof profilesAfterSignIn === 'function') profilesAfterSignIn(account.user);
     checkAdmin();
     checkAchievements();
   } catch {
@@ -2380,7 +2389,8 @@ async function signOut() {
   if (syncMeta.dirty) await pushProfile();
   try { await accountRequest('/logout', 'POST', {}); } catch { /* still sign out here */ }
   signedOutLocally();
-  toast('Signed out. Your progress stays on this device too.');
+  toast('Signed out. That profile stays on this device, locked until you sign in again.');
+  if (typeof profilesAfterSignOut === 'function') profilesAfterSignOut();
 }
 async function deleteAccount(event) {
   event.preventDefault();
@@ -2390,6 +2400,7 @@ async function deleteAccount(event) {
   if (!result.ok) { account.error = result.data.error || 'Could not delete the account.'; renderAccount(); return; }
   signedOutLocally();
   toast('Account deleted.');
+  if (typeof profilesAfterSignOut === 'function') profilesAfterSignOut({deleted: true});
 }
 function syncLabel() {
   if (!account.user) return account.available === false ? 'Saved in this browser' : 'Sign in to sync devices';
@@ -2697,10 +2708,12 @@ $('#sidebarScrim').addEventListener('click', () => closeDrawer());
 $('#clearFiltersSide').addEventListener('click', clearFilters);
 $('#shortcutsTrigger').addEventListener('click', () => $('#settingsDialog').showModal());
 drawerQuery.addEventListener?.('change', applySidebarState);
+/* Real refraction through the glass where the browser supports SVG backdrop filters (Chrome, Edge). */
+if (navigator.userAgentData?.brands?.some(brand => /Chromium/.test(brand.brand)) && !/Mobile|Android/.test(navigator.userAgent)) document.documentElement.classList.add('lg-refract');
 /* Liquid-glass specular highlight follows the pointer on the surface under it. */
 document.addEventListener('pointermove', event => {
   if (event.pointerType !== 'mouse' || document.body.dataset.fx === 'minimal') return;
-  const surface = event.target instanceof Element && event.target.closest('.video-card, .lg, .new-banner, .shelf-card, .side-row');
+  const surface = event.target instanceof Element && event.target.closest('.video-card, .lg, .new-banner, .shelf-card, .side-row, .lib-card2, .lib-tile, .who-tile');
   if (!surface) return;
   const rect = surface.getBoundingClientRect();
   surface.style.setProperty('--mx', `${((event.clientX - rect.left) / rect.width * 100).toFixed(1)}%`);
@@ -2917,14 +2930,41 @@ function renderAnnouncement() {
   box.innerHTML = `<span class="announcement-dot"></span><p>${escapeHTML(note.text)}${note.link ? ` <a href="${escapeHTML(note.link)}" target="_blank" rel="noreferrer">Learn more</a>` : ''}</p><button class="close-button small" type="button" data-announcement-close aria-label="Dismiss announcement">×</button>`;
   box.hidden = false;
 }
+const FEATURE_EVERY_MS = 5 * 60 * 60 * 1000;
+function rotatingPick() {
+  const pool = videos.filter(video => !video.unavailable).map(video => video.id).sort();
+  if (!pool.length) return null;
+  const slot = Math.floor(Date.now() / FEATURE_EVERY_MS);
+  // a small integer hash of the 5-hour slot, so every visitor sees the same video
+  let hash = slot ^ 0x9e3779b9;
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash ^= hash >>> 16;
+  return getVideo(pool[Math.abs(hash) % pool.length]);
+}
+function untilNextPick() {
+  const left = FEATURE_EVERY_MS - (Date.now() % FEATURE_EVERY_MS);
+  const hours = Math.floor(left / 3600000);
+  const minutes = Math.floor((left % 3600000) / 60000);
+  return hours ? `${hours}h ${minutes}m` : `${Math.max(1, minutes)}m`;
+}
+let featuredSlot = -1;
+setInterval(() => {
+  if (document.hidden || siteConfig.featured) return;
+  const slot = Math.floor(Date.now() / FEATURE_EVERY_MS);
+  if (slot !== featuredSlot) renderFeatured();
+  else { const clock = $('#featuredClock'); if (clock) clock.textContent = untilNextPick(); }
+}, 30000);
 function renderFeatured() {
   const section = $('#featured');
-  const pick = siteConfig.featured && getVideo(siteConfig.featured.videoId);
+  const chosen = siteConfig.featured && getVideo(siteConfig.featured.videoId);
+  const pick = chosen || rotatingPick();
+  featuredSlot = Math.floor(Date.now() / FEATURE_EVERY_MS);
   if (!pick) { section.hidden = true; section.innerHTML = ''; return; }
   const theme = themes[pick.creator] || themes.Other;
   section.style.setProperty('--card-rgb', theme.rgb);
   section.innerHTML = `<div class="featured-inner lg"><span class="featured-art"><img src="${escapeHTML(pick.thumbnail || `https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg`)}" alt=""></span>
-    <div class="featured-copy"><p class="eyebrow">★ FEATURED</p><h2>${escapeHTML(pick.title)}</h2>${siteConfig.featured.note ? `<p class="featured-note">${escapeHTML(siteConfig.featured.note)}</p>` : ''}
+    <div class="featured-copy"><p class="eyebrow">${chosen ? '★ FEATURED' : `★ RANDOM PICK · NEW ONE IN <span id="featuredClock">${untilNextPick()}</span>`}</p><h2>${escapeHTML(pick.title)}</h2>${chosen && siteConfig.featured.note ? `<p class="featured-note">${escapeHTML(siteConfig.featured.note)}</p>` : ''}
     <p class="new-meta"><img src="${item(pick.creator)}" alt="">${escapeHTML(pick.creator)} · ${escapeHTML(pick.date || '')} · ${escapeHTML(pick.length || '')}</p>
     <button class="primary-action" type="button" data-play="${pick.id}">${statusFor(pick) === 'In progress' ? 'Resume' : 'Watch'}</button></div></div>`;
   section.hidden = false;
@@ -2977,6 +3017,7 @@ function renderCalendar() {
   const daysInMonth = new Date(calendar.year, calendar.month + 1, 0).getDate();
   const todayKey = dayKey(new Date());
   $('#calendarTitle').textContent = `${MONTHS[calendar.month]} ${calendar.year}`;
+  renderCalSince();
   const monthCount = [...map.entries()].filter(([key]) => key.startsWith(`${calendar.year}-${String(calendar.month + 1).padStart(2, '0')}`)).reduce((sum, [, list]) => sum + list.length, 0);
   $('#calLegend').innerHTML = `${CREATORS.map(name => `<span><i style="background:${themes[name].accent}"></i>${name}</span>`).join('')}<span class="cal-total">${monthCount} upload${monthCount === 1 ? '' : 's'} this month</span>`;
   const cells = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(name => `<span class="cal-weekday">${name}</span>`);
@@ -3001,6 +3042,30 @@ function renderCalendar() {
   $('#calPrev').disabled = !months.length || current <= months[0];
   $('#calNext').disabled = !months.length || current >= months[months.length - 1];
 }
+// "How long since…": each creator's latest upload, counting up live while the calendar is open.
+function sinceText(ms) {
+  const minutes = Math.floor(ms / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  if (days >= 60) return `${Math.floor(days / 30.44)} months`;
+  if (days >= 1) return `${days} day${days === 1 ? '' : 's'}${days < 7 && hours ? `, ${hours} hr` : ''}`;
+  if (hours >= 1) return `${hours} hr ${minutes % 60} min`;
+  return `${Math.max(1, minutes)} min`;
+}
+function renderCalSince() {
+  const box = $('#calSince');
+  if (!box) return;
+  const latest = name => videos.filter(video => video.creator === name && byDate(video)).sort((a, b) => byDate(b) - byDate(a))[0];
+  const rows = CREATORS.map(name => ({name, video: latest(name)})).filter(row => row.video).sort((a, b) => byDate(b.video) - byDate(a.video));
+  const now = Date.now();
+  box.innerHTML = rows.map(({name, video}) => {
+    const age = now - byDate(video);
+    const fresh = age < 2 * 86400000 ? 'fresh' : age > 21 * 86400000 ? 'quiet' : '';
+    return `<button type="button" class="since-card lg ${fresh}" style="--c:${themes[name].accent}" data-cal-day="${dayKey(new Date(byDate(video)))}" title="Last upload: ${escapeHTML(video.title)}">
+      <img src="${item(name)}" alt=""><span><b>${escapeHTML(name)}</b><strong>${sinceText(age)}</strong><small>since last upload · ${new Date(byDate(video)).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</small></span></button>`;
+  }).join('');
+}
+setInterval(() => { if ($('#calendarDialog').open) renderCalSince(); }, 60000);
 function shiftMonth(step) {
   const map = uploadsByDay();
   const months = [...new Set([...map.keys()].map(key => key.slice(0, 7)))].sort();
@@ -3360,6 +3425,7 @@ $('#calPrev').addEventListener('click', () => shiftMonth(-1));
 $('#calNext').addEventListener('click', () => shiftMonth(1));
 $('#calLatest').addEventListener('click', () => { $('#calendarDialog').close(); openCalendar(); });
 $('#calGrid').addEventListener('click', event => { const cell = event.target.closest('[data-cal-day]'); if (cell) { calendar.day = cell.dataset.calDay; renderCalendar(); } });
+$('#calSince').addEventListener('click', event => { const card = event.target.closest('[data-cal-day]'); if (!card) return; const key = card.dataset.calDay; calendar.year = Number(key.slice(0, 4)); calendar.month = Number(key.slice(5, 7)) - 1; calendar.day = key; renderCalendar(); });
 $('#calDay').addEventListener('click', event => { const card = event.target.closest('[data-play]'); if (card) { $('#calendarDialog').close(); openPlayer(card.dataset.play); } });
 document.querySelectorAll('[data-vault-tab]').forEach(button => button.addEventListener('click', () => { vaultTab = button.dataset.vaultTab; renderVault(); }));
 $('#vaultBody').addEventListener('click', event => {
@@ -3384,8 +3450,8 @@ document.querySelectorAll('.calendar-dialog, .vault-dialog, .install-dialog, .ad
    Views: Videos (home) · Library (entered through an End portal) · Scene Finder
    ========================================================================== */
 let currentView = 'home';
-const VIEW_IDS = {home: '#homeView', library: '#libraryView', scenes: '#sceneView'};
-function viewFromHash() { const hash = location.hash.replace(/^#\/?/, ''); return hash.startsWith('library') ? 'library' : hash.startsWith('scenes') ? 'scenes' : 'home'; }
+const VIEW_IDS = {home: '#homeView', library: '#libraryView', scenes: '#sceneView', saved: '#savedView'};
+function viewFromHash() { const hash = location.hash.replace(/^#\/?/, ''); return hash.startsWith('library') ? 'library' : hash.startsWith('scenes') ? 'scenes' : hash.startsWith('saved') ? 'saved' : 'home'; }
 function showView(name) {
   currentView = name;
   for (const [key, selector] of Object.entries(VIEW_IDS)) $(selector).hidden = key !== name;
@@ -3393,6 +3459,7 @@ function showView(name) {
   document.body.dataset.view = name;
   if (name === 'library') openLibrary();
   if (name === 'scenes') openScenes();
+  if (name === 'saved') renderSaved();
   if (name !== 'library') window.scrollTo({top: 0, behavior: 'auto'});
 }
 function route() {
@@ -3406,6 +3473,42 @@ document.querySelectorAll('.top-tabs a').forEach(link => link.addEventListener('
   if (link.dataset.view === currentView && link.dataset.view !== 'home') { event.preventDefault(); window.scrollTo({top: 0, behavior: 'smooth'}); }
   if (link.dataset.view === 'home' && location.hash.replace(/^#\/?/, '') === '') { event.preventDefault(); showView('home'); }
 }));
+
+/* ==========================================================================
+   Saved: favorites, watch later and bookmarked moments in one place
+   ========================================================================== */
+const savedState = {tab: 'all'};
+function renderSaved() {
+  const view = $('#savedView');
+  const favorites = videos.filter(video => profile.favorites[video.id]).sort((a, b) => byDate(b) - byDate(a));
+  const later = videos.filter(video => profile.watchLater[video.id]).sort((a, b) => Number(profile.watchLater[b.id]) - Number(profile.watchLater[a.id]));
+  const moments = videos.flatMap(video => (profile.bookmarks[video.id] || []).map(mark => ({video, mark}))).sort((a, b) => (b.mark.at || 0) - (a.mark.at || 0) || a.mark.t - b.mark.t);
+  const tabs = [['all', 'Everything', favorites.length + later.length + moments.length], ['favorites', 'Favorites', favorites.length], ['later', 'Watch later', later.length], ['moments', 'Moments', moments.length]];
+  const section = (key, title, note, list, empty) => (savedState.tab === 'all' || savedState.tab === key) ? `
+    <section class="saved-sec" aria-labelledby="saved-${key}">
+      <div class="saved-sec-head"><h2 id="saved-${key}"><img src="${item(key === 'favorites' ? 'Favorites' : key === 'later' ? 'Watch later' : 'Bookmarked')}" alt="">${title}<small>${list.length}</small></h2><p>${note}</p></div>
+      ${list.length ? (key === 'moments'
+        ? `<div class="saved-moments">${list.slice(0, savedState.tab === 'all' ? 6 : 200).map(({video, mark}) => `<button type="button" class="saved-moment lg" data-moment="${video.id}" data-t="${Math.floor(mark.t)}"><img src="${thumbOf(video)}" alt="" loading="lazy"><span><b>${formatSeconds(mark.t)}</b><strong>${escapeHTML(mark.label || 'Your bookmark')}</strong><small>${escapeHTML(video.title)}</small></span></button>`).join('')}</div>`
+        : `<div class="video-grid saved-grid">${list.slice(0, savedState.tab === 'all' ? 8 : 500).map(cardMarkup).join('')}</div>`)
+        + (savedState.tab === 'all' && list.length > (key === 'moments' ? 6 : 8) ? `<button type="button" class="quiet-action saved-more" data-saved-tab="${key}">See all ${list.length}</button>` : '')
+      : `<div class="saved-empty"><img src="${item(key === 'favorites' ? 'Favorites' : key === 'later' ? 'Watch later' : 'Bookmarked')}" alt=""><p>${empty}</p></div>`}
+    </section>` : '';
+  view.innerHTML = `
+    <header class="saved-hero lg">
+      <div><p class="eyebrow">YOUR COLLECTION</p><h1 id="savedTitle">Saved</h1><p class="hero-text">Everything you've kept: favorites, videos you want to get to, and moments you bookmarked inside the player.</p></div>
+      <div class="saved-tabs" role="tablist" aria-label="Saved lists">${tabs.map(([key, label, count]) => `<button type="button" role="tab" aria-selected="${savedState.tab === key}" data-saved-tab="${key}">${label}<small>${count}</small></button>`).join('')}</div>
+    </header>
+    ${section('favorites', 'Favorites', 'Videos you starred with the amethyst button.', favorites, 'No favorites yet. Use the amethyst button on any video card.')}
+    ${section('later', 'Watch later', 'Newest additions first. Watched ones stay until you remove them.', later, 'Nothing queued. Use the clock button on any video card.')}
+    ${section('moments', 'Bookmarked moments', 'Jump straight back to the second you saved.', moments, 'No moments yet. Press B while watching to bookmark one.')}`;
+}
+$('#savedView').addEventListener('click', event => {
+  const tab = event.target.closest('[data-saved-tab]');
+  if (tab) { savedState.tab = tab.dataset.savedTab; renderSaved(); window.scrollTo({top: 0, behavior: 'smooth'}); return; }
+  const moment = event.target.closest('[data-moment]');
+  if (moment) { openPlayer(moment.dataset.moment, {start: Number(moment.dataset.t), label: 'your bookmark'}); return; }
+  handleCardClick(event);
+});
 
 /* The End portal and the Library live in library.js. */
 function highlight(text, words) {
